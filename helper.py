@@ -23,7 +23,7 @@ import cv2 as cv
 import plotly.express as px
 
 card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
-ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pic', 'carreau', 'coeur']
+ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
     
 
 def load_data(paths_list):
@@ -46,8 +46,8 @@ def isolate_card_features(cards, kings):
         card = cards[x:x+row, y:y+col]
         individual_cards.append(card)
     # isolate numbers/letters
-    idx = [50,50,50,45,50,35,50,50,40,40,45,45,49]
-    row = 70
+    idx = np.array([50,50,50,45,50,35,50,50,40,40,45,45,49]) - 3
+    row = 70 + 7
     idy = [40,40,35,35,40,50,40,35,40,50,40,40,46]
     col = 50
     numbers = []
@@ -70,6 +70,22 @@ def isolate_card_features(cards, kings):
     return individual_cards, numbers, symbols
     
 
+def edge_detector(color_images):
+    final_images = []
+    for image in color_images:
+        grayscale = skimage.color.rgb2gray(image)
+        # smooth for generalization and cleaning
+        smoothed = filters.gaussian(grayscale, sigma = 1)
+        # edge detector
+        edges = filters.sobel(smoothed)
+        #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
+        #edges =cv.morphologyEx(smoothed,cv.MORPH_GRADIENT,kernel)
+
+        otsu = filters.threshold_otsu(edges)
+        output = edges > otsu
+        final_images.append(output)
+    return final_images
+    
 def one_contour_by_img(img_list):
     """
     Extracts the biggest contour for each image
@@ -174,7 +190,8 @@ def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symb
         dist_to_symbols = []
         for i in range(GT_3D_descr.shape[0]-4, GT_3D_descr.shape[0], 1):
             diff = card_all_descr - GT_3D_descr[i,:]
-            dist = diff[:,0]**2 + diff[:,1]**2 + diff[:,2]**2
+            #dist = diff[:,0]**2 + diff[:,1]**2 + diff[:,2]**2
+            dist = np.linalg.norm(diff.astype(np.float), axis = 1) # more general
             dist_to_symbols.append(np.min(dist))
         idx = np.argmin(dist_to_symbols)
         pred_symbols.append(symbol_keys[idx])
@@ -187,7 +204,7 @@ def plot_coutours_length_distrib(cards_contours_len, ground_truth_contours_len):
     ax.hist(ground_truth_contours_len, bins=len(ground_truth_contours_len))
     plt.text(400,3.5, f'min = {np.min(ground_truth_contours_len)} \nmax = {np.max(ground_truth_contours_len)}')
     for i, (x, card) in enumerate(zip(ground_truth_contours_len, ground_truth_titles)):
-        plt.text(x, (i+1)*0.2, card)
+        plt.text(x, (i+1)*0.1, card)
     plt.title('Distribution of ground truth contour lengths')
     plt.show()
 
@@ -205,7 +222,7 @@ def plot_coutours_length_distrib(cards_contours_len, ground_truth_contours_len):
 
     
 def plot_fourier_descr_and_card_contours(GT_descr, cards_descr = None, card_idx = None):
-    fig, axes = plt.subplots(ncols = 2, figsize=(10,5))
+    fig, axes = plt.subplots(ncols = 2, figsize=(12,5))
 
     # CHOOSE WHICH CARD CONTOUR TO PLOT ON FOURIER SPACE
     if card_idx is not None and cards_descr is not None:
