@@ -69,7 +69,31 @@ def isolate_card_features(cards, kings):
 
     return individual_cards, numbers, symbols
     
-
+def remove_background(images):
+    edges = edge_detector(images)
+    contours = contours_by_img(edges)
+    filt_contours = filter_contours_by_size(contours, 100, np.max(images[0].shape))
+    
+    output = []
+    # filter out background using min and max value of filtered contours, by image
+    for contours, image in zip(filt_contours, images):
+        #initiate crop dimensions
+        left, right = image.shape[1], 0
+        up, down = image.shape[0], 0
+        
+        # find crop dimensions
+        for contour in contours:
+            if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
+            if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
+            if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
+            if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
+        """ maybe put a verification step here """
+        # crop and save
+        crop_img = image[up:down, left:right]
+        output.append(crop_img)
+    return output
+    
+    
 def edge_detector(color_images):
     final_images = []
     for image in color_images:
@@ -80,7 +104,7 @@ def edge_detector(color_images):
         edges = filters.sobel(smoothed)
         #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
         #edges =cv.morphologyEx(smoothed,cv.MORPH_GRADIENT,kernel)
-
+        
         otsu = filters.threshold_otsu(edges)
         output = edges > otsu
         final_images.append(output)
