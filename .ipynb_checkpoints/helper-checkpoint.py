@@ -21,6 +21,7 @@ from skimage import filters
 import scipy
 import cv2 as cv
 import plotly.express as px
+import scipy.ndimage as nd
 
 card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
 ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
@@ -69,30 +70,73 @@ def isolate_card_features(cards, kings):
 
     return individual_cards, numbers, symbols
     
-def remove_background(images):
-    edges = edge_detector(images)
-    contours = contours_by_img(edges)
-    filt_contours = filter_contours_by_size(contours, 100, np.max(images[0].shape))
+# def remove_background(images):
+#     edges = edge_detector(images)
+#     contours = contours_by_img(edges)
+#     filt_contours = filter_contours_by_size(contours, 100, np.max(images[0].shape))
     
-    output = []
-    # filter out background using min and max value of filtered contours, by image
-    for contours, image in zip(filt_contours, images):
-        #initiate crop dimensions
+#     output = []
+#     # filter out background using min and max value of filtered contours, by image
+#     for contours, image in zip(filt_contours, images):
+#         #initiate crop dimensions
+#         left, right = image.shape[1], 0
+#         up, down = image.shape[0], 0
+        
+#         # find crop dimensions
+#         for contour in contours:
+#             if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
+#             if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
+#             if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
+#             if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
+#         """ maybe put a verification step here """
+#         # crop and save
+#         crop_img = image[up:down, left:right]
+#         output.append(crop_img)
+#     return output
+
+def crop_table_from_binary(images, binary):
+    cleaned = []
+    # basic cleaning of outside white aberrations
+    for bin_ in binary:
+        x = np.copy(bin_)
+        row_med = np.median(x, axis = 0)
+        x[:,row_med==0] = 0
+        cleaned.append(x)
+    
+    # create imperfect mask from contours
+    contours = one_contour_by_img(cleaned)
+    masks = []
+    for contour, x in zip(contours, cleaned):
+        mask = np.zeros((x.shape))
+        mask[contour[:,1], contour[:,0]] = 255
+        mask = nd.binary_fill_holes(mask)
+        masks.append(mask)
+        
+    # second cleaning of outside defaults (inside is filled now)
+    final_masks = []
+    for mask in masks:
+        row_med = np.median(mask, axis = 0)
+        mask[:,row_med==0] = 0
+        col_med = np.median(mask, axis = 1)
+        mask[col_med==0,:] = 0
+        final_masks.append(mask)
+    
+    # crop from final correct contour of table
+    contours = one_contour_by_img(final_masks)
+    cropped = []
+    
+    for image, contour in zip(images, contours):
+        # initiate crop dimensions
         left, right = image.shape[1], 0
         up, down = image.shape[0], 0
-        
         # find crop dimensions
-        for contour in contours:
-            if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
-            if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
-            if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
-            if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
-        """ maybe put a verification step here """
-        # crop and save
+        if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
+        if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
+        if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
+        if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
         crop_img = image[up:down, left:right]
-        output.append(crop_img)
-    return output
-    
+        cropped.append(crop_img)
+    return final_masks, cropped
     
 def edge_detector(color_images):
     final_images = []
