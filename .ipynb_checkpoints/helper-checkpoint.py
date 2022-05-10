@@ -4,19 +4,17 @@ from typing import Union
 from glob import glob
 import pandas as pd
 import os
-from treys import Card # PROBLEM CAME UP AFTER INSTALLING PLOTLY
+from treys import Card
 from termcolor import colored
 from utils import eval_listof_games , debug_listof_games, save_results , load_results
 
 import skimage.io
 import matplotlib.pyplot as plt
-#libraries for exercise 1.2 Region growing
 from skimage.segmentation import flood, flood_fill
 from skimage import morphology
 from skimage.morphology import closing, opening, disk, square
 import numpy as np
 
-#libraries for exercise 1.3 Contour detection
 from skimage import filters
 import scipy
 import cv2 as cv
@@ -27,6 +25,10 @@ card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '
 ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
     
 
+""""""""""""""""""""""""
+"""   Loading stuff  """
+""""""""""""""""""""""""
+
 def load_data(paths_list):
     images = []
     for path in paths_list:
@@ -36,6 +38,7 @@ def load_data(paths_list):
 
 
 def isolate_card_features(cards, kings):
+    """ Get all symbols, letters, numbers and original cards """
     # isolate cards
     idx = [520,1190,1190,1190,1190,1840,1840,1840,1890,2530,2530,2550,2550]
     row = 640
@@ -69,91 +72,73 @@ def isolate_card_features(cards, kings):
         symbols.append(symbol)
 
     return individual_cards, numbers, symbols
-    
-# def remove_background(images):
-#     edges = edge_detector(images)
-#     contours = contours_by_img(edges)
-#     filt_contours = filter_contours_by_size(contours, 100, np.max(images[0].shape))
-    
-#     output = []
-#     # filter out background using min and max value of filtered contours, by image
-#     for contours, image in zip(filt_contours, images):
-#         #initiate crop dimensions
-#         left, right = image.shape[1], 0
-#         up, down = image.shape[0], 0
-        
-#         # find crop dimensions
-#         for contour in contours:
-#             if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
-#             if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
-#             if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
-#             if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
-#         """ maybe put a verification step here """
-#         # crop and save
-#         crop_img = image[up:down, left:right]
-#         output.append(crop_img)
-#     return output
 
-def crop_table_from_binary(images, binary):
-    cleaned = []
+""""""""""""""""""""""""""""""
+"""  Cropping table stuff  """
+""""""""""""""""""""""""""""""
+
+def cropping_routine(image):
+    """ General function, calls the others """
+    x = hist_eq(image)
+    x = binarization(x)
+    x, cropped_img = crop_table_from_binary(image, x)
+    return x, cropped_img
+
+
+def binarization(color_images):
+    x = skimage.color.rgb2gray(image)
+    # smooth for generalization a#nd cleaning
+    x = filters.gaussian(x, sigma = 3)
+    # binarization
+    otsu = filters.threshold_otsu(x)
+    x = (x > otsu).astype(int)
+    return x
+
+def hist_eq(image):
+    channel_1 = skimage.exposure.equalize_hist(image[:,:,0])
+    channel_1 = filters.gaussian(channel_1, sigma = 3)
+    channel_2 = skimage.exposure.equalize_hist(image[:,:,1])
+    channel_2 = filters.gaussian(channel_2, sigma = 3)
+    channel_3 = skimage.exposure.equalize_hist(image[:,:,2])
+    channel_3 = filters.gaussian(channel_3, sigma = 3)
+    output = np.stack([channel_1, channel_2, channel_3], axis = 2)
+    return output
+
+def crop_table_from_binary(image, bin_img):
     # basic cleaning of outside white aberrations
-    for bin_ in binary:
-        x = np.copy(bin_)
-        row_med = np.median(x, axis = 0)
-        x[:,row_med==0] = 0
-        cleaned.append(x)
+    row_med = np.median(bin_img, axis = 0)
+    bin_img[:,row_med==0] = 0
     
     # create imperfect mask from contours
-    contours = one_contour_by_img(cleaned)
-    masks = []
-    for contour, x in zip(contours, cleaned):
-        mask = np.zeros((x.shape))
-        mask[contour[:,1], contour[:,0]] = 255
-        mask = nd.binary_fill_holes(mask)
-        masks.append(mask)
+    contour = one_contour_by_img([bin_img])[0]
+    mask = np.zeros((bin_img.shape))
+    mask[contour[:,1], contour[:,0]] = 255
+    mask = nd.binary_fill_holes(mask)
         
     # second cleaning of outside defaults (inside is filled now)
-    final_masks = []
-    for mask in masks:
-        row_med = np.median(mask, axis = 0)
-        mask[:,row_med==0] = 0
-        col_med = np.median(mask, axis = 1)
-        mask[col_med==0,:] = 0
-        final_masks.append(mask)
+    row_med = np.median(mask, axis = 0)
+    mask[:,row_med==0] = 0
+    col_med = np.median(mask, axis = 1)
+    mask[col_med==0,:] = 0
     
     # crop from final correct contour of table
-    contours = one_contour_by_img(final_masks)
-    cropped = []
+    contour = one_contour_by_img([mask])[0]
     
-    for image, contour in zip(images, contours):
-        # initiate crop dimensions
-        left, right = image.shape[1], 0
-        up, down = image.shape[0], 0
-        # find crop dimensions
-        if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
-        if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
-        if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
-        if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
-        crop_img = image[up:down, left:right]
-        cropped.append(crop_img)
-    return final_masks, cropped
-    
-def edge_detector(color_images):
-    final_images = []
-    for image in color_images:
-        grayscale = skimage.color.rgb2gray(image)
-        # smooth for generalization and cleaning
-        smoothed = filters.gaussian(grayscale, sigma = 1)
-        # edge detector
-        edges = filters.sobel(smoothed)
-        #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
-        #edges =cv.morphologyEx(smoothed,cv.MORPH_GRADIENT,kernel)
-        
-        otsu = filters.threshold_otsu(edges)
-        output = edges > otsu
-        final_images.append(output)
-    return final_images
-    
+    # initiate crop dimensions
+    left, right = image.shape[1], 0
+    up, down = image.shape[0], 0
+    # find crop dimensions
+    if np.min(contour[:,1]) < up: up = np.min(contour[:,1])
+    if np.max(contour[:,1]) > down: down = np.max(contour[:,1])
+    if np.min(contour[:,0]) < left: left = np.min(contour[:,0])
+    if np.max(contour[:,0]) > right: right = np.max(contour[:,0])
+    crop = image[up:down, left:right]
+    return mask, crop
+
+""""""""""""""""""""""""""""""
+"""  Contours computation  """
+""""""""""""""""""""""""""""""
+
 def one_contour_by_img(img_list):
     """
     Extracts the biggest contour for each image
@@ -232,6 +217,10 @@ def complex_contours(contour_list):
         contours.append(complex_contour)
     return contours
 
+""""""""""""""""""""""""""""""
+"""    Features creation   """
+""""""""""""""""""""""""""""""
+
 def n_FT_descr(complex_contours, n):
     imgs_fft = []
     for complex_contour in complex_contours:
@@ -240,6 +229,27 @@ def n_FT_descr(complex_contours, n):
         imgs_fft.append(norm)
     imgs_fft = np.asarray(imgs_fft, dtype=object)
     return imgs_fft
+
+
+def edge_detector(color_images):
+    final_images = []
+    for image in color_images:
+        grayscale = skimage.color.rgb2gray(image)
+        # smooth for generalization and cleaning
+        smoothed = filters.gaussian(grayscale, sigma = 1)
+        # edge detector
+        edges = filters.sobel(smoothed)
+        #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
+        #edges =cv.morphologyEx(smoothed,cv.MORPH_GRADIENT,kernel)
+        
+        otsu = filters.threshold_otsu(edges)
+        output = edges > otsu
+        final_images.append(output)
+    return final_images
+    
+""""""""""""""""""""""""""""""
+"""      Predictions       """
+""""""""""""""""""""""""""""""
 
 def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symbol_keys):
     pred_numbers = []
@@ -265,6 +275,11 @@ def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symb
         pred_symbols.append(symbol_keys[idx])
         
     return pred_numbers, pred_symbols
+
+
+""""""""""""""""""""""""""""""
+"""     Plotting stuff     """
+""""""""""""""""""""""""""""""
 
 def plot_coutours_length_distrib(cards_contours_len, ground_truth_contours_len):
     # plot ground truth distrib
