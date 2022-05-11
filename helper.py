@@ -85,7 +85,7 @@ def cropping_routine(image):
     return x, cropped_img
 
 
-def binarization(color_images):
+def binarization(image):
     x = skimage.color.rgb2gray(image)
     # smooth for generalization a#nd cleaning
     x = filters.gaussian(x, sigma = 3)
