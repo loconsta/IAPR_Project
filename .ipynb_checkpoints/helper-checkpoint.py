@@ -259,7 +259,7 @@ def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symb
         dist_to_numbers = []
         for i in range(GT_3D_descr.shape[0]-4):
             diff = card_all_descr - GT_3D_descr[i,:]
-            dist = diff[:,0]**2 + diff[:,1]**2 + diff[:,2]**2
+            dist = np.linalg.norm(diff.astype(np.float), axis = 1)
             dist_to_numbers.append(np.min(dist))
         idx = np.argmin(dist_to_numbers)
         pred_numbers.append(number_keys[idx])
