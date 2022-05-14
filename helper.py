@@ -4,7 +4,7 @@ from typing import Union
 from glob import glob
 import pandas as pd
 import os
-from treys import Card
+#from treys import Card
 from termcolor import colored
 from utils import eval_listof_games , debug_listof_games, save_results , load_results
 
@@ -23,7 +23,8 @@ import scipy.ndimage as nd
 
 card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
 ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
-    
+ 
+CHIPS_AREA = 50000/(1750*1760)
 
 """"""""""""""""""""""""
 """   Loading stuff  """
@@ -360,6 +361,29 @@ def plot_interactive_3D_descr(df):
     fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
     #fig.write_html('first_figure.html', auto_open=False)
     fig.show()
+    
+def display_image(mat, axes=None, cmap=None, hide_axis=True):
+    """
+    Display a given matrix into Jupyter's notebook
+    
+    :param mat: Matrix to display
+    :param axes: Subplot on which to display the image
+    :param cmap: Color scheme to use
+    :param hide_axis: If `True` axis ticks will be hidden
+    :return: Matplotlib handle
+    """
+    img = mat if mat.ndim == 3 else mat
+    cmap= cmap if mat.ndim != 2 or cmap is not None else 'gray'
+    if axes is None:
+        if hide_axis:
+            plt.xticks([])
+            plt.yticks([])
+        return plt.imshow(img, cmap=cmap)
+    else:
+        if hide_axis:
+            axes.set_xticks([])
+            axes.set_yticks([])
+        return axes.imshow(img, cmap=cmap)
 
 # def plot_card(idx, idy, r, c):
 #     fig, axes = plt.subplots(ncols=4, figsize=(10,8))
@@ -367,3 +391,138 @@ def plot_interactive_3D_descr(df):
 #         ax.imshow(cards[x:x+r,y:y+c])
 #         ax.axis('off')
 #     plt.show()
+
+
+
+""""""""""""""""""""""""""""""
+"""     Chips detection stuff     """
+""""""""""""""""""""""""""""""
+
+def mask(chips_area, lower, upper):
+    nb_pix  = 0 
+    mask  = np.zeros((1, 1, 1))
+
+    img_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
+
+
+    full_mask = cv.inRange(img_hsv, lower, upper)
+
+    mask = cv.bitwise_and(chips_area,chips_area, mask = full_mask)
+    
+    bins = binarization(mask)
+    clos = closing(bins,disk(20))
+    op = opening(clos,disk(20))
+    
+    nb_pix = np.sum(op==1)
+    
+    return op, nb_pix
+
+def red_mask(chips_area):
+    nb_pix  = 0 
+    mask  = np.zeros((1, 1, 1))
+
+    img_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
+    
+    # lower boundary RED color range values; Hue (0 - 10)
+    lower1 = np.array([0, 100, 20])
+    upper1 = np.array([10, 255, 255])
+
+    # upper boundary RED color range values; Hue (160 - 180)
+    lower2 = np.array([160,100,20])
+    upper2 = np.array([179,255,255])
+
+    lower_mask = cv.inRange(img_hsv, lower1, upper1)
+    upper_mask = cv.inRange(img_hsv, lower2, upper2)
+
+    full_mask = lower_mask + upper_mask
+    
+
+    mask = cv.bitwise_and(chips_area,chips_area, mask = full_mask)
+    
+    bins = binarization(mask)
+    clos = closing(bins,disk(20))
+    op = opening(clos,disk(20))
+    
+    nb_pix = np.sum(op==1)
+    
+    return op, nb_pix
+
+
+def predict_blue(chips_area):
+    
+    lower = np.array([100,150,0])
+    upper = np.array([140,255,255])
+    
+    _,nb_px = mask(chips_area, lower , upper)
+    
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    
+    return int(n)
+
+def predict_red(chips_area):
+    _,nb_px = red_mask(chips_area)
+    
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    
+    return int(n)
+
+def predict_white(chips_area):
+    
+    lower = np.array([0,0,240])
+    upper = np.array([179,200,255])
+    
+    _,nb_px = mask(chips_area, lower , upper)
+    
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    
+    return int(n)
+
+def predict_black(chips_area):
+    
+    lower = np.array([0,0,0])
+    upper = np.array([180,255,60])
+    
+    _,nb_px = mask(chips_area, lower , upper)
+    
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    
+    return int(n)
+
+def predict_green(chips_area):
+    #blue
+    lower = np.array([100,150,0])
+    upper = np.array([140,255,255])
+    
+    blue,_ = mask(chips_area, lower , upper)
+    
+    lower = np.array([25, 52, 72])
+    upper = np.array([102, 255, 255]) 
+    
+    green,_ = mask(chips_area, lower , upper)
+    
+    green = green - green*blue
+    
+    green = opening(green,disk(20))
+    
+    nb_px = np.sum(green==1)
+    
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    
+    return int(n)
+    
+    
