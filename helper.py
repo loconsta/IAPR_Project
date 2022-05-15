@@ -398,7 +398,7 @@ def display_image(mat, axes=None, cmap=None, hide_axis=True):
 """     Chips detection stuff     """
 """"""""""""""""""""""""""""""
 
-def mask(chips_area, lower, upper):
+def mask_c(chips_area, lower, upper):
     nb_pix  = 0 
     mask  = np.zeros((1, 1, 1))
 
@@ -409,7 +409,10 @@ def mask(chips_area, lower, upper):
 
     mask = cv.bitwise_and(chips_area,chips_area, mask = full_mask)
     
-    bins = binarization(mask)
+    bins = skimage.color.rgb2gray(mask)
+    bins[bins>0] = 1
+    bins[bins!=1] = 0
+
     clos = closing(bins,disk(20))
     op = opening(clos,disk(20))
     
@@ -450,15 +453,29 @@ def red_mask(chips_area):
 
 def predict_blue(chips_area):
     
+    #black
+    lower = np.array([0,0,0])
+    upper = np.array([180,255,60])
+    
+    black,_ = mask_c(chips_area, lower , upper)
+    
     lower = np.array([100,150,0])
     upper = np.array([140,255,255])
     
-    _,nb_px = mask(chips_area, lower , upper)
+    blue,_ = mask(chips_area, lower , upper)
+    
+    blue = blue - black*blue
+    
+    blue = opening(blue,disk(20))
+    
+    
+    nb_px = np.sum(blue==1)
+    
     
     x = chips_area.shape[0]
     y = chips_area.shape[1]
     
-    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    n = np.ceil(nb_px/(x*y)/CHIPS_AREA)
     
     return int(n)
 
@@ -468,7 +485,7 @@ def predict_red(chips_area):
     x = chips_area.shape[0]
     y = chips_area.shape[1]
     
-    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    n = np.ceil(nb_px/(x*y)/CHIPS_AREA)
     
     return int(n)
 
@@ -477,12 +494,12 @@ def predict_white(chips_area):
     lower = np.array([0,0,240])
     upper = np.array([179,200,255])
     
-    _,nb_px = mask(chips_area, lower , upper)
+    _,nb_px = mask_c(chips_area, lower , upper)
     
     x = chips_area.shape[0]
     y = chips_area.shape[1]
     
-    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    n = np.ceil(nb_px/(x*y)/CHIPS_AREA)
     
     return int(n)
 
@@ -491,12 +508,12 @@ def predict_black(chips_area):
     lower = np.array([0,0,0])
     upper = np.array([180,255,60])
     
-    _,nb_px = mask(chips_area, lower , upper)
+    _,nb_px = mask_c(chips_area, lower , upper)
     
     x = chips_area.shape[0]
     y = chips_area.shape[1]
     
-    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    n = np.ceil(nb_px/(x*y)/CHIPS_AREA)
     
     return int(n)
 
@@ -507,8 +524,8 @@ def predict_green(chips_area):
     
     blue,_ = mask(chips_area, lower , upper)
     
-    lower = np.array([25, 52, 72])
-    upper = np.array([102, 255, 255]) 
+    lower = np.array([25, 52, 0]) #v 72
+    upper = np.array([99, 255, 255]) 
     
     green,_ = mask(chips_area, lower , upper)
     
@@ -521,7 +538,7 @@ def predict_green(chips_area):
     x = chips_area.shape[0]
     y = chips_area.shape[1]
     
-    n = np.round(nb_px/(x*y)/CHIPS_AREA)
+    n = np.ceil(nb_px/(x*y)/CHIPS_AREA)
     
     return int(n)
     
