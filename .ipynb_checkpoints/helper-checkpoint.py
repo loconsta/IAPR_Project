@@ -234,7 +234,8 @@ def n_FT_descr(complex_contours, n):
 def edge_detector(color_images):
     final_images = []
     for image in color_images:
-        grayscale = skimage.color.rgb2gray(image)
+        if len(image.shape) == 3: grayscale = skimage.color.rgb2gray(image)
+        else: grayscale = image
         # smooth for generalization and cleaning
         smoothed = filters.gaussian(grayscale, sigma = 1)
         # edge detector
@@ -255,24 +256,30 @@ def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symb
     pred_numbers = []
     pred_symbols = []
     for card_all_descr in cards_3D_descr:
-        # for each number, compute minimal distance to it
-        dist_to_numbers = []
-        for i in range(GT_3D_descr.shape[0]-4):
-            diff = card_all_descr - GT_3D_descr[i,:]
-            dist = np.linalg.norm(diff.astype(np.float), axis = 1)
-            dist_to_numbers.append(np.min(dist))
-        idx = np.argmin(dist_to_numbers)
-        pred_numbers.append(number_keys[idx])
-        
-        # for each symbol, compute minimal distance to it
-        dist_to_symbols = []
-        for i in range(GT_3D_descr.shape[0]-4, GT_3D_descr.shape[0], 1):
-            diff = card_all_descr - GT_3D_descr[i,:]
-            #dist = diff[:,0]**2 + diff[:,1]**2 + diff[:,2]**2
-            dist = np.linalg.norm(diff.astype(np.float), axis = 1) # more general
-            dist_to_symbols.append(np.min(dist))
-        idx = np.argmin(dist_to_symbols)
-        pred_symbols.append(symbol_keys[idx])
+        # check returned card case
+        if (card_all_descr == np.zeros(9)).all():
+            pred_numbers.append('0')
+            pred_symbols.append('0')
+            
+        else:
+            # for each number, compute minimal distance to it
+            dist_to_numbers = []
+            for i in range(GT_3D_descr.shape[0]-4):
+                diff = card_all_descr - GT_3D_descr[i,:]
+                dist = np.linalg.norm(diff.astype(float), axis = 1)
+                dist_to_numbers.append(np.min(dist))
+            idx = np.argmin(dist_to_numbers)
+            pred_numbers.append(number_keys[idx])
+
+            # for each symbol, compute minimal distance to it
+            dist_to_symbols = []
+            for i in range(GT_3D_descr.shape[0]-4, GT_3D_descr.shape[0], 1):
+                diff = card_all_descr - GT_3D_descr[i,:]
+                #dist = diff[:,0]**2 + diff[:,1]**2 + diff[:,2]**2
+                dist = np.linalg.norm(diff.astype(float), axis = 1) # more general
+                dist_to_symbols.append(np.min(dist))
+            idx = np.argmin(dist_to_symbols)
+            pred_symbols.append(symbol_keys[idx])
         
     return pred_numbers, pred_symbols
 
