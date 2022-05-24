@@ -234,16 +234,17 @@ def n_FT_descr(complex_contours, n):
 def edge_detector(color_images):
     final_images = []
     for image in color_images:
-        grayscale = skimage.color.rgb2gray(image)
+        if len(image.shape) == 3: x = skimage.color.rgb2gray(image)
+        else: x = image
         # smooth for generalization and cleaning
-        smoothed = filters.gaussian(grayscale, sigma = 1)
+        x = filters.gaussian(x, sigma = 1)
         # edge detector
-        edges = filters.sobel(smoothed)
+        x = filters.sobel(x)
         #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
         #edges =cv.morphologyEx(smoothed,cv.MORPH_GRADIENT,kernel)
         
-        otsu = filters.threshold_otsu(edges)
-        output = edges > otsu
+        otsu = filters.threshold_otsu(x)
+        output = x > otsu
         final_images.append(output)
     return final_images
     
