@@ -165,7 +165,17 @@ def find_common_search_area(image, markers, CARD_DIM):
     """ FINALLY WE DONT CUT THE IMAGE HERE"""
     return big_area
     
-    
+def check_if_back(edges, LOWER_BOUND, UPPER_BOUND):
+    ct_number = []
+    for img in edges:
+        k = cv.getStructuringElement(cv.MORPH_CROSS,(5,5))
+        x = skimage.morphology.dilation(img, k)
+        [contours] = contours_by_img([x])
+        [filtered_contours] = filter_contours_by_size([contours], LOWER_BOUND, UPPER_BOUND)
+        ct_number.append(len(filtered_contours))
+    is_back_of_card = np.asarray(ct_number) < 4
+    return is_back_of_card
+
 """"""""""""""""""""""""""""""
 """  Contours computation  """
 """"""""""""""""""""""""""""""
@@ -317,7 +327,7 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
     # set default as returned card case
     cards = ['0', '0']
     
-    if not (descr == np.zeros(9)).all() and len(contours) >= 6:
+    if not (descr == np.zeros(9)).all():
         """Preselect contours associated numbers"""
         # for each contour, compute distance of every number descr to it
         ct_to_nb_dist = []
