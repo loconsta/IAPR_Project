@@ -135,6 +135,37 @@ def crop_table_from_binary(image, bin_img):
     crop = image[up:down, left:right]
     return mask, crop
 
+
+""""""""""""""""""""""""""""""
+"""  Cropping areas stuff  """
+""""""""""""""""""""""""""""""
+
+def find_markers_idx(image, MARKERS):
+    table_dim = image.shape[:2]
+    return (MARKERS * table_dim).astype(int)
+
+def find_player_search_area(image, marker):
+    # adapt search area to table size
+    row, col = image.shape[:2]
+    R, C = int(row/6), int(col/6)
+    x1, x2, y1, y2 = marker[0]-R, marker[0]+R, marker[1]-C, marker[1]+C
+    # return a crop on the image
+    x1, x2 = np.clip([x1, x2], 0, row)
+    y1, y2 = np.clip([y1, y2], 0, col)
+    search_area = image[x1:x2, y1:y2]
+    return search_area
+
+def find_common_search_area(image, markers, CARD_DIM):
+    """ Works but a bit edgy, would be better to rely on something else """
+    # isolate a 1rst big search area in bottom 3rd of the image
+    row, col = image.shape[:2]
+    C = int((CARD_DIM[1]*col))
+    start, end = markers[0,1]-C, markers[-1,1]+C
+    big_area = image[int(2/3*row):row, start:end]
+    """ FINALLY WE DONT CUT THE IMAGE HERE"""
+    return big_area
+    
+    
 """"""""""""""""""""""""""""""
 """  Contours computation  """
 """"""""""""""""""""""""""""""
@@ -277,6 +308,104 @@ def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symb
         
     return pred_numbers, pred_symbols
 
+
+def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
+    # separate number and symbols descr
+    NB_descr = GT_descr[:-4]
+    SYM_descr = GT_descr[-4:]
+    
+    # set default as returned card case
+    cards = ['0', '0']
+    
+    if not (descr == np.zeros(9)).all() and len(contours) >= 6:
+        """Preselect contours associated numbers"""
+        # for each contour, compute distance of every number descr to it
+        ct_to_nb_dist = []
+        nb_cont = []
+        nb_keys = []
+        # iterate over each contour
+        for ct_descr, ct in zip(descr, contours):
+            diff = ct_descr - NB_descr
+            dist = np.linalg.norm(diff.astype(float), axis = 1)
+            # pick most likely number fo contour and record
+            idx = np.argmin(dist)
+            ct_to_nb_dist.append(dist[idx])
+            nb_cont.append(ct)
+            nb_keys.append(number_keys[idx])
+        
+        """ Preselect contours associated symbols """
+        # for each contour, compute distance of every symbol descr to it
+        ct_to_sym_dist = []
+        sym_cont = []
+        sym_keys = []
+        # iterate over each contour
+        for ct_descr, ct in zip(descr, contours):
+            diff = ct_descr - SYM_descr
+            dist = np.linalg.norm(diff.astype(float), axis = 1)
+            # pick most likely symbol fo contour and record
+            idx = np.argmin(dist)
+            ct_to_sym_dist.append(dist[idx])
+            sym_cont.append(ct)
+            sym_keys.append(symbol_keys[idx])
+        
+        """ Define true symbols, EASIER TO ISOLATE than numbers (need 3) """
+        # compute center of contours to approximate location
+        ct_locs = np.array([np.mean(contour, axis = 0) for contour in contours])
+        
+        sorted_idx = np.argsort(ct_to_sym_dist)
+        sym_cont = ([sym_cont[i] for i in sorted_idx])[:3]
+        sym_keys = ([sym_keys[i] for i in sorted_idx])[:3]
+        sym_locs = ([ct_locs[i] for i in sorted_idx])[:3]
+        
+        """ take min distance number-symbol pairs to find the 3 pairs of interest """
+        candidate_pairs = []
+        candidate_locations = []
+        candidates_dist = []
+        for sym_loc, sym_key in zip(sym_locs, sym_keys):
+            # for each candidate symbol, compute distance to candidate number
+            dist = np.linalg.norm(sym_loc-ct_locs, axis = 1)
+                
+            # sort distances with number keys and means accordingly
+            idx = np.argsort(dist)
+            sorted_dist = dist[idx]
+            sorted_nb_key = [nb_keys[i] for i in idx] 
+            sorted_nb_locs = ct_locs[idx] 
+            
+            # create minimal distance pair, record location for later and
+            # make sure we dont create a pair of similar contours by taking [1]
+            candidate_pairs.append(sorted_nb_key[1]+sym_key)
+            candidate_locations.append((sorted_nb_locs[1] + sym_loc)/2)
+            candidates_dist.append(sorted_dist[1])
+
+
+        #print(candidate_pairs)
+        #print(candidate_locations)
+        #print(candidates_dist)
+        
+        # take 2 different pairs amond the 3
+        if candidate_pairs[0] != candidate_pairs[1]:
+            cards_ID = np.array([candidate_pairs[0], candidate_pairs[1]])
+            locations = np.array([candidate_locations[0], candidate_locations[1]])
+        else:
+            cards_ID = np.array([candidate_pairs[0], candidate_pairs[2]])
+            locations = np.array([candidate_locations[0], candidate_locations[2]])
+        
+        """ identify which card is where """ #using locations and player ID
+        if player_id in [1,4]:
+            up_idx = np.argmin(locations[:,1])
+            down_idx = np.argmax(locations[:,1])
+            up_card = cards_ID[up_idx]
+            down_card = cards_ID[down_idx]
+            cards = [down_card, up_card]
+        
+        if player_id in [2,3]:
+            left_idx = np.argmin(locations[:,0])
+            right_idx = np.argmax(locations[:,0])
+            left_card = cards_ID[left_idx]
+            right_card = cards_ID[right_idx]
+            cards = [right_card, left_card]
+
+    return cards
 
 """"""""""""""""""""""""""""""
 """     Plotting stuff     """
