@@ -372,13 +372,11 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
         candidate_locations = []
         #candidates_dist = []
         candidate_nb_cont = []
-        for sym_loc, sym_key in zip(sym_locs, sym_keys):
+        for sym_ct, sym_loc, sym_key in zip(sym_cont, sym_locs, sym_keys):
             # for each candidate symbol, compute distance to candidate number
-            dist = np.linalg.norm(sym_loc-ct_locs, axis = 1)
-                
+            dist = [scipy.spatial.distance.cdist(sym_ct, nb_ct).min() for nb_ct in nb_cont]
             # sort distances with number keys and means accordingly
             idx = np.argsort(dist)
-            #sorted_dist = dist[idx]
             sorted_nb_key = [nb_keys[i] for i in idx]
             sorted_nb_cont = [nb_cont[i] for i in idx]
             sorted_nb_locs = ct_locs[idx] 
@@ -388,7 +386,6 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
             # and keep number contour for a 6or9 check if needed
             candidate_pairs.append(sorted_nb_key[1]+sym_key)
             candidate_locations.append((sorted_nb_locs[1] + sym_loc)/2)
-            #candidates_dist.append(sorted_dist[1])
             candidate_nb_cont.append(candidate_nb_cont)
 
 
