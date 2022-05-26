@@ -370,25 +370,30 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
         """ take min distance number-symbol pairs to find the 3 pairs of interest """
         candidate_pairs = []
         candidate_locations = []
-        candidates_dist = []
+        #candidates_dist = []
+        candidate_nb_cont = []
         for sym_loc, sym_key in zip(sym_locs, sym_keys):
             # for each candidate symbol, compute distance to candidate number
             dist = np.linalg.norm(sym_loc-ct_locs, axis = 1)
                 
             # sort distances with number keys and means accordingly
             idx = np.argsort(dist)
-            sorted_dist = dist[idx]
-            sorted_nb_key = [nb_keys[i] for i in idx] 
+            #sorted_dist = dist[idx]
+            sorted_nb_key = [nb_keys[i] for i in idx]
+            sorted_nb_cont = [nb_cont[i] for i in idx]
             sorted_nb_locs = ct_locs[idx] 
             
             # create minimal distance pair, record location for later and
             # make sure we dont create a pair of similar contours by taking [1]
+            # and keep number contour for a 6or9 check if needed
             candidate_pairs.append(sorted_nb_key[1]+sym_key)
             candidate_locations.append((sorted_nb_locs[1] + sym_loc)/2)
-            candidates_dist.append(sorted_dist[1])
+            #candidates_dist.append(sorted_dist[1])
+            candidate_nb_cont.append(candidate_nb_cont)
 
 
-        #print(candidate_pairs)
+        print(candidate_pairs)
+        print(candidate_nb_cont)
         #print(candidate_locations)
         #print(candidates_dist)
         
