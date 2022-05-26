@@ -433,7 +433,6 @@ def six_or_nine_check(cards_ID, nb_contours, locations):
         final_ID = ID
         if ID[0] == '6' or ID[0] == '9':
             rot_ct = rotate_contour(ct)
-            print(rot_ct)
             # compute center of contour and rot contour
             Cx = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
             Cy = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
