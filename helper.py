@@ -386,21 +386,26 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
             # and keep number contour for a 6or9 check if needed
             candidate_pairs.append(sorted_nb_key[1]+sym_key)
             candidate_locations.append((sorted_nb_locs[1] + sym_loc)/2)
-            candidate_nb_cont.append(candidate_nb_cont)
+            candidate_nb_cont.append(sorted_nb_cont[1])
 
 
-        print(candidate_pairs)
-        print(candidate_nb_cont)
+        #print(candidate_pairs)
+        #print(candidate_nb_cont)
         #print(candidate_locations)
         #print(candidates_dist)
         
         # take 2 different pairs amond the 3
         if candidate_pairs[0] != candidate_pairs[1]:
-            cards_ID = np.array([candidate_pairs[0], candidate_pairs[1]])
+            cards_ID = [candidate_pairs[0], candidate_pairs[1]]
             locations = np.array([candidate_locations[0], candidate_locations[1]])
+            nb_contours = [candidate_nb_cont[0], candidate_nb_cont[1]]
         else:
-            cards_ID = np.array([candidate_pairs[0], candidate_pairs[2]])
+            cards_ID = [candidate_pairs[0], candidate_pairs[2]]
             locations = np.array([candidate_locations[0], candidate_locations[2]])
+            nb_contours = [candidate_nb_cont[0], candidate_nb_cont[2]]
+        
+        """ check if number is a 6 or 9 if case occurs """
+        cards_ID = six_or_nine_check(cards_ID, nb_contours, locations)
         
         """ identify which card is where """ #using locations and player ID
         if player_id in [1,4]:
@@ -419,6 +424,39 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
 
     return cards
 
+
+    
+def six_or_nine_check(cards_ID, nb_contours, locations):
+    """ Choose 6 or 9 by looking at distance between (rot) number and mean sym/nb location """
+    output_ID = []
+    for ID, ct, loc in zip(cards_ID, nb_contours, locations):
+        final_ID = ID
+        if ID[0] == '6' or ID[0] == '9':
+            rot_ct = rotate_contour(ct)
+            print(rot_ct)
+            # compute center of contour and rot contour
+            Cx = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
+            Cy = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
+            rot_Cx = (np.max(rot_ct[0,:], axis = 0) + np.min(rot_ct[0,:], axis = 0)) // 2
+            rot_Cy = (np.max(rot_ct[0,:], axis = 0) + np.min(rot_ct[0,:], axis = 0)) // 2
+            
+            # compute distance
+            dist = np.linalg.norm([Cx, Cy] - loc)
+            rot_dist = np.linalg.norm([rot_Cx, rot_Cy] - loc)
+            if dist > rot_dist: ID[0] = final_ID = '9' + ID[1]
+            else: final_ID = '6' + ID[1]
+
+        output_ID.append(final_ID)
+    return output_ID
+            
+def rotate_contour(contour, angle = np.pi):
+    Ox, Oy = np.mean(contour, axis = 0)
+    rot_x = np.asarray([Ox + np.cos(angle) * (x - Ox) - np.sin(angle) * (y - Oy) for (x,y) in contour], dtype =object)
+    rot_y = np.asarray([Oy + np.sin(angle) * (x - Ox) + np.cos(angle) * (y - Oy) for (x,y) in contour], dtype =object)
+    rot_contour = np.vstack([rot_x, rot_y]).T
+    return rot_contour
+    
+    
 """"""""""""""""""""""""""""""
 """     Plotting stuff     """
 """"""""""""""""""""""""""""""
