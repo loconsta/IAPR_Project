@@ -4,7 +4,7 @@ from typing import Union
 from glob import glob
 import pandas as pd
 import os
-#from treys import Card
+from treys import Card
 from termcolor import colored
 from utils import eval_listof_games , debug_listof_games, save_results , load_results
 
