@@ -4,7 +4,7 @@ from typing import Union
 from glob import glob
 import pandas as pd
 import os
-from treys import Card
+#from treys import Card
 from termcolor import colored
 from utils import eval_listof_games , debug_listof_games, save_results , load_results
 
@@ -20,6 +20,7 @@ import scipy
 import cv2 as cv
 import plotly.express as px
 import scipy.ndimage as nd
+from skimage.filters import threshold_multiotsu
 
 card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
 ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
@@ -550,6 +551,9 @@ def plot_interactive_3D_descr(df):
 """"""""""""""""""""""""""""""
 """     Chips stuff     """
 """"""""""""""""""""""""""""""
+CHIPS_AREA = 50000/(1750*1760)
+luce = 221.26
+noluce = 86.66
 
 def find_chips_search_area(image):
     # adapt search area to table size
