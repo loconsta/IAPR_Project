@@ -433,17 +433,18 @@ def six_or_nine_check(cards_ID, nb_contours, locations):
     for ID, ct, loc in zip(cards_ID, nb_contours, locations):
         final_ID = ID
         if ID[0] == '6' or ID[0] == '9':
+            # rotation of 180° around centr of mass (remains identical)
             rot_ct = rotate_contour(ct)
-            # compute center of contour and rot contour
-            Cx = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
-            Cy = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
-            rot_Cx = (np.max(rot_ct[0,:], axis = 0) + np.min(rot_ct[0,:], axis = 0)) // 2
-            rot_Cy = (np.max(rot_ct[0,:], axis = 0) + np.min(rot_ct[0,:], axis = 0)) // 2
+            # compute center of contour and rot contour (changes)
+            Cx = (np.max(ct[:,0]) + np.min(ct[:,0])) // 2
+            Cy = (np.max(ct[:,1]) + np.min(ct[:,1])) // 2
+            rot_Cx = (np.max(rot_ct[:,0]) + np.min(rot_ct[:,0])) // 2
+            rot_Cy = (np.max(rot_ct[:,1]) + np.min(rot_ct[:,1])) // 2
             
             # compute distance
             dist = np.linalg.norm([Cx, Cy] - loc)
             rot_dist = np.linalg.norm([rot_Cx, rot_Cy] - loc)
-            if dist > rot_dist: ID[0] = final_ID = '9' + ID[1]
+            if dist > rot_dist: final_ID = '9' + ID[1]
             else: final_ID = '6' + ID[1]
 
         output_ID.append(final_ID)

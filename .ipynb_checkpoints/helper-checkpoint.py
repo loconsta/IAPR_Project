@@ -20,6 +20,7 @@ import scipy
 import cv2 as cv
 import plotly.express as px
 import scipy.ndimage as nd
+from skimage.filters import threshold_multiotsu
 
 card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
 ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
@@ -432,17 +433,18 @@ def six_or_nine_check(cards_ID, nb_contours, locations):
     for ID, ct, loc in zip(cards_ID, nb_contours, locations):
         final_ID = ID
         if ID[0] == '6' or ID[0] == '9':
+            # rotation of 180° around centr of mass (remains identical)
             rot_ct = rotate_contour(ct)
-            # compute center of contour and rot contour
-            Cx = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
-            Cy = (np.max(ct[0,:], axis = 0) + np.min(ct[0,:], axis = 0)) // 2
-            rot_Cx = (np.max(rot_ct[0,:], axis = 0) + np.min(rot_ct[0,:], axis = 0)) // 2
-            rot_Cy = (np.max(rot_ct[0,:], axis = 0) + np.min(rot_ct[0,:], axis = 0)) // 2
+            # compute center of contour and rot contour (changes)
+            Cx = (np.max(ct[:,0]) + np.min(ct[:,0])) // 2
+            Cy = (np.max(ct[:,1]) + np.min(ct[:,1])) // 2
+            rot_Cx = (np.max(rot_ct[:,0]) + np.min(rot_ct[:,0])) // 2
+            rot_Cy = (np.max(rot_ct[:,1]) + np.min(rot_ct[:,1])) // 2
             
             # compute distance
             dist = np.linalg.norm([Cx, Cy] - loc)
             rot_dist = np.linalg.norm([rot_Cx, rot_Cy] - loc)
-            if dist > rot_dist: ID[0] = final_ID = '9' + ID[1]
+            if dist > rot_dist: final_ID = '9' + ID[1]
             else: final_ID = '6' + ID[1]
 
         output_ID.append(final_ID)
@@ -546,3 +548,93 @@ def plot_interactive_3D_descr(df):
 #         ax.imshow(cards[x:x+r,y:y+c])
 #         ax.axis('off')
 #     plt.show()
+
+""""""""""""""""""""""""""""""
+"""     Chips stuff     """
+""""""""""""""""""""""""""""""
+CHIPS_AREA = 50000/(1750*1760)
+luce = 221.26
+noluce = 86.66
+
+def find_chips_search_area(image):
+    # adapt search area to table size
+    row, col = image.shape[:2]
+    R, C = int(row/4), int(col/4)
+    R_2 = 3*R
+    C_2 = 3*C
+    # return a crop on the image
+    search_area = image[R:R_2, C:C_2]
+    return search_area
+
+
+def round_(x,T): ## round function with threshold
+    
+    n = np.floor(x)
+    if (x-n > T): n += 1
+    
+    return int(n)
+    
+def n_chips(N,chips_area): ## number of chips
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    
+    x = N/(x*y)/CHIPS_AREA
+    
+    return round_(x,T=0.3)
+
+def give_color(chips_area,final_mask): ## give color to each pixel
+    
+    chips_area_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
+    result = np.zeros(chips_area_hsv[:,:,0].shape)
+    
+    
+    chips_area_hsv = np.float64(chips_area_hsv)
+    
+    x = np.mean(chips_area[0:10,0:10,2])
+    black = int(72/(luce-noluce) * (x-noluce) + 38)
+
+    result[chips_area_hsv[:,:,2] < black] = 1 #black
+    chips_area_hsv[result!=0,:] = float("NAN")
+    
+    result[chips_area_hsv[:,:,1] < 60] = 2 #white
+    chips_area_hsv[result!=0,:] = float("NAN")
+    
+    result[(chips_area_hsv[:,:,0] < 10) + (chips_area_hsv[:,:,0] >160)] = 3 #red
+    chips_area_hsv[result!=0,:] = float("NAN")
+    
+    result[(chips_area_hsv[:,:,0] > 95) * (chips_area_hsv[:,:,0] < 130)] = 4 #blue
+    chips_area_hsv[result!=0,:] = float("NAN")
+    
+    result[(chips_area_hsv[:,:,0] > 35) * (chips_area_hsv[:,:,0] < 95)] = 5 #green
+    
+    result = result*final_mask
+    
+    return result
+
+def predict_chips_area(chips_area): ## predict the pixels in a chips
+    
+    chips_area_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
+    thresholds = threshold_multiotsu(chips_area_hsv[:,:,2], classes = 2)
+
+    # Using the threshold values, we generate the three regions.
+    regions = np.digitize(chips_area_hsv[:,:,2], bins=thresholds)
+
+    thresholds1 = threshold_multiotsu(chips_area_hsv[:,:,0], classes = 2)
+
+    # Using the threshold values, we generate the three regions.
+    regions1 = np.digitize(chips_area_hsv[:,:,0], bins=thresholds1)
+
+    tot = (1-regions) + regions1
+
+    tot[tot>0.5] = 1
+    
+    nb_px = np.sum(tot == 1)
+    
+    x = chips_area.shape[0]
+    y = chips_area.shape[1]
+    
+    
+    x = nb_px/(x*y)/CHIPS_AREA
+    
+    return round_(x,T=0.2),tot
