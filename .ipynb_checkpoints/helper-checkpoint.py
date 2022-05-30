@@ -592,10 +592,9 @@ def plot_interactive_3D_descr(df):
 """ Common cards detection """
 """"""""""""""""""""""""""""""
 
-def find_cards(image, sig):
-    crop = cropping_routine(image)[1]#get table area
+def find_cards(crop, sig):
+    #crop = cropping_routine(image)[1]#get table area
     size_lim = 2*(CARD_DIM[0]*crop.shape[0]+CARD_DIM[1]*crop.shape[1])-350#check that contour is bigger than the shape of a card (-350 for tolerance)
-    crop = crop[-crop.shape[0]//3:,:]#get bottom third of image
     value = cv.cvtColor(crop, cv.COLOR_RGB2HSV)[:, :, 2]#keep the value in the hsv channels
     # Compute the Canny filter
     edges2 = feature.canny(value, sigma=sig)
@@ -622,45 +621,37 @@ def find_cards(image, sig):
     boundRect.sort()#sort by top left angle
     cards = []
     for i in range(len(keep)):
-        if(380<boundRect[i][2]<480):#Check that the bounding rectangle is approximately as large as a card
+        if(380<boundRect[i][2]<480 & 350<boundRect[i][3]):#Check that the bounding rectangle is approximately as large and at least half as high as a card
             #Crop the cards from the original bottom third of image
+            print()
             card = crop[int(boundRect[i][1]):int(boundRect[i][1]+boundRect[i][3]),int(boundRect[i][0]):int(boundRect[i][0]+boundRect[i][2])]
             cards.append(card)
     return cards
 
 def find_5_cards(image):
+    crop = image[-image.shape[0]//3:,:]#get bottom third of image
     final_cards = []
-    best_idx = 0
+    best_idx = (0,0)
     best_len = 0
     for sig in range (2,5):
-        cards = find_cards(image,sig)
-        #If we find 5 cards, record sig and exit
+        cards = find_cards(crop,sig)
+        #If we find 5 cards, return results
         if len(cards)==5 :
-            best_idx = sig
-            break
-        #If we dont, record best length
-        elif (len(cards)>best_len) : best_idx=sig
-    final_cards = find_cards(image, best_idx)
-    """
+            return cards
+    
     #If we don't have 5 cards, try loris' method
-    if(len(final_cards!=5):
-       new_img = isolate_common_cards(image)
-       for sig in range (2,5):
-        cards = find_cards(new_img, sig)
-        #If we find 5 cards, record sig and exit
-        if len(cards)==5 :
-            best_idx = sig
-            break
-        #If we dont, record best length
-        else if (len(cards)>best_len) : best_idx=sig
-    final_cards= find_cards(image, best_idx)
-    """      
-    return final_cards
+    if(best_len!=5):
+        new_img = isolate_common_cards(crop)
+        for sig in range (2,5):
+            cards = find_cards(new_img, sig)
+            #If we find 5 cards, record sig and exit
+            if len(cards)==5 :
+                return cards
+    #If both methods don't return good results, return basic separation (/5)
+    return find_common_search_area(image, find_markers_idx(image)[4:])
 
 def isolate_common_cards(img):
     x = np.copy(img)
-    x = cropping_rountine(img)[1]
-    x = crop[-crop.shape[0]//3:,:]
     cond = x[:,:,1] < 222
     x[cond] = 0
     x = skimage.color.rgb2gray(x)
@@ -679,4 +670,4 @@ def isolate_common_cards(img):
     im = nd.binary_fill_holes(im)
     #plt.imshow(im, cmap = 'gray')
     #plt.show()
-    return im
+    return img*im[...,np.newaxis]
