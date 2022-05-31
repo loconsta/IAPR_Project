@@ -322,6 +322,10 @@ def edge_detector(color_images):
 def predict_cards_from_predictors(descr, contours, GT_descr, number_keys, symbol_keys, K=1):
     pair, location, cont = identify_K_pairs(descr, contours, GT_descr, number_keys, symbol_keys, K)
     card_ID = six_or_nine_check(pair, cont, location)
+    
+    # check that it returns something (avoid breaking everything)
+    if len(card_ID) == 0: card_ID = ['0']
+    
     return card_ID
 
 
@@ -430,7 +434,11 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys, 
             left_card = cards_ID[left_idx]
             right_card = cards_ID[right_idx]
             cards = [right_card, left_card]
-
+    
+    # check that it returns something (avoid breaking everything)
+    for card in cards:
+        if len(card) == 0: card = ['0']
+        
     return cards
     
 def six_or_nine_check(cards_ID, nb_contours, locations):
