@@ -4,14 +4,15 @@ from typing import Union
 from glob import glob
 import pandas as pd
 import os
-from treys import Card
+#from treys import Card
 from termcolor import colored
-from utils import eval_listof_games , debug_listof_games, save_results , load_results
+#from utils import eval_listof_games , debug_listof_games, save_results , load_results
 
 import skimage.io
 import matplotlib.pyplot as plt
 from skimage.segmentation import flood, flood_fill
 from skimage import morphology
+from skimage import feature
 from skimage.morphology import closing, opening, disk, square
 import numpy as np
 
@@ -177,6 +178,27 @@ def check_if_back(edges, LOWER_BOUND, UPPER_BOUND):
     is_back_of_card = np.asarray(ct_number) < 4
     return is_back_of_card
 
+def find_common_search_area_v1(image, markers, CARD_DIM):
+    """ Works but a bit edgy, would be better to rely on something else """
+    # isolate a 1rst big search area in bottom 3rd of the image
+    row, col = image.shape[:2]
+    C = int((CARD_DIM[1]*col))
+    start, end = markers[0,1]-C, markers[-1,1]+C
+    big_area = image[int(2/3*row):row, start:end]
+    
+    # refine using edge detector and contours filtering
+    edges = edge_detector([big_area])[0]
+    contours = contours_by_img([edges])[0]
+    contours = filter_contours_by_size([contours], 100, 3000)[0]
+    start = np.min([np.min(contour[0,:]) for contour in contours])
+    end = np.max([np.max(contour[0,:]) for contour in contours])
+
+    # rescale image and divide in 5
+    big_area = big_area[:,start:end]
+    w = int(big_area.shape[1]/5)
+    cards = [big_area[ : , w*i : w*(1+i) ] for i in range(5)]
+    return cards
+
 """"""""""""""""""""""""""""""
 """  Contours computation  """
 """"""""""""""""""""""""""""""
@@ -317,7 +339,11 @@ def predict_cards_from_predictors(cards_3D_descr, GT_3D_descr, number_keys, symb
         idx = np.argmin(dist_to_symbols)
         pred_symbols.append(symbol_keys[idx])
         
-    return pred_numbers, pred_symbols
+    final =[]
+    for num, sym in zip(pred_numbers, pred_symbols):
+        final.append(num+sym)
+        
+    return final
 
 
 def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys):
@@ -638,3 +664,115 @@ def predict_chips_area(chips_area): ## predict the pixels in a chips
     x = nb_px/(x*y)/CHIPS_AREA
     
     return round_(x,T=0.2),tot
+
+""""""""""""""""""""""""""""""
+""" Common cards detection """
+""""""""""""""""""""""""""""""
+
+def find_cards(crop, sig, CARD_DIM):
+    #crop = cropping_routine(image)[1]#get table area
+    size_lim = 2*(CARD_DIM[0]*crop.shape[0]+CARD_DIM[1]*crop.shape[1])-350#check that contour is bigger than the shape of a card (-350 for tolerance)
+    value = cv.cvtColor(crop, cv.COLOR_RGB2HSV)[:, :, 2]#keep the value in the hsv channels
+    # Compute the Canny filter
+    edges2 = feature.canny(value, sigma=sig)
+
+    # Convert the boolean image into a binary (0,1)
+    edges2_binary = np.zeros_like(value)
+    #edges2_binary = cv.morphologyEx(edges2_binary, cv.MORPH_CLOSE, cv.getStructuringElement(cv.MORPH_RECT,(1,250)))
+    edges2_binary[edges2>0] = 1
+    
+    #Compute contours
+    contours = contours_by_img([edges2_binary])[0]
+    #Find which contours to keep
+    keep=[]
+    for contour in contours:
+        if(len(contour)>=size_lim): 
+            keep.append(contour)
+            
+    #Create empty lists to contain contours and angles position
+    contours_poly = [None]*len(keep)
+    boundRect = [None]*len(keep)
+    for i, c in enumerate(keep):
+        contours_poly[i] = cv.approxPolyDP(c, 3, True)#Approximate form
+        boundRect[i] = cv.boundingRect(contours_poly[i])#contains index of corners the rectange
+    boundRect.sort()#sort by top left angle
+    
+    #Empty list for results
+    cards = []
+    for i in range(len(keep)):
+        if(380<boundRect[i][2]<480 and 350< boundRect[i][3]):#Check that the bounding rectangle is approximately as large and at least half as high as a card
+            #Crop the cards from the original bottom third of image)
+            card = crop[int(boundRect[i][1]):int(boundRect[i][1]+boundRect[i][3]),int(boundRect[i][0]):int(boundRect[i][0]+boundRect[i][2])]
+            cards.append(card)
+    return cards
+
+def find_5_cards(image, common_markers, card_dim):
+    crop = image[-image.shape[0]//3:,:]#get bottom third of image
+    final_cards = []
+    best_idx = (0,0)
+    best_len = 0
+    for sig in range (2,5):
+        cards = find_cards(crop,sig, card_dim)
+        #If we find 5 cards, return results
+        if len(cards)==5 :
+            return cards
+    
+    #If we don't have 5 cards, try loris' method
+    if(best_len!=5):
+        new_img = isolate_common_cards(crop)
+        for sig in range (2,5):
+            cards = find_cards(new_img, sig, card_dim)
+            #If we find 5 cards, record sig and exit
+            if len(cards)==5 :
+                return cards
+    #If both methods don't return good results, return basic separation (/5)
+    return find_common_search_area_v1(image, common_markers, card_dim)
+
+def isolate_common_cards(img):
+    x = np.copy(img)
+    cond = x[:,:,1] < 222
+    x[cond] = 0
+    x = skimage.color.rgb2gray(x)
+    k = cv.getStructuringElement(cv.MORPH_CROSS,(3,3))
+    x = skimage.morphology.binary_opening(x, k)#, footprint=None, out=None)
+    k = cv.getStructuringElement(cv.MORPH_CROSS,(6,6))
+    x = skimage.morphology.binary_closing(x, k)#, footprint=None, out=None)
+    im = np.zeros((x.shape[0], x.shape[1]))
+    
+    [cts] = contours_by_img([x])
+    lengths = [len(ct) for ct in cts]
+    idx = np.argsort(lengths)
+    cts_of_cards = ([cts[i] for i in idx])[-5:]
+    for ct in cts_of_cards:
+        im[ct[:,1], ct[:,0]] = 255
+    im = nd.binary_fill_holes(im)
+    #plt.imshow(im, cmap = 'gray')
+    #plt.show()
+    return img*im[...,np.newaxis]
+
+def get_predictors(cards, lower, upper):
+    #bin_cards=[]
+    #for card in cards:
+    #    bin_cards.append(binarization(card))
+    sobel_test_images = edge_detector(cards)
+    test_contours = one_contour_by_img(sobel_test_images)
+    test_all_contours = contours_by_img(sobel_test_images)
+    test_filtered_contours = filter_contours_by_size(test_all_contours, lower, upper)
+    cards_comp_ct = [complex_contours(card_cont) for card_cont in test_filtered_contours]
+    test_descr = [n_FT_descr(comp_ct, 10) for comp_ct in cards_comp_ct]
+    test_3D_descr = []
+    for card_descr in test_descr:
+        descr_1 = card_descr[:,1]
+        descr_2 = card_descr[:,2]
+        descr_3 = card_descr[:,3]
+        descr_4 = card_descr[:,4]
+        descr_5 = card_descr[:,5]
+        descr_6 = card_descr[:,6]
+        descr_7 = card_descr[:,7]
+        descr_8 = card_descr[:,8]
+        descr_9 = card_descr[:,9]
+        card_contours_descr = np.vstack([descr_1,descr_2,descr_3,
+                                         descr_4,descr_5,descr_6,
+                                        descr_7,descr_8,descr_9]).T
+        test_3D_descr.append(card_contours_descr)
+    return test_3D_descr
