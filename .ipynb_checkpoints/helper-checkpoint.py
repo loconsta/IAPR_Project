@@ -611,19 +611,25 @@ def predict_chips_area(chips_area): ## predict the pixels in a chips
 """"""""""""""""""""""""""""""""""""
 
 def find_cards(crop, sig, CARD_DIM):
-    #crop = cropping_routine(image)[1]#get table area
-    size_lim = 2*(CARD_DIM[0]*crop.shape[0]+CARD_DIM[1]*crop.shape[1])-350#check that contour is bigger than the shape of a card (-350 for tolerance)
-    value = cv.cvtColor(crop, cv.COLOR_RGB2HSV)[:, :, 2]#keep the value in the hsv channels
+    """Find cards by applying canny edge detection from skimage with parameter sigma,
+       followed by contours detection and filtering resulting contours.
+       It finally create a bounding box using opencv functions and crop the original image
+       in the areas of the bounding boxes. 
+       It works well in most cases where the edges are clear
+    """
+    #To check later that contour is bigger than the shape of a card (-350 for tolerance)
+    size_lim = 2*(CARD_DIM[0]*crop.shape[0]+CARD_DIM[1]*crop.shape[1])
+    #Use only the value channel from hsv images
+    value = cv.cvtColor(crop, cv.COLOR_RGB2HSV)[:, :, 2]
     # Compute the Canny filter
-    edges2 = feature.canny(value, sigma=sig)
+    edges = feature.canny(value, sigma=sig)
 
     # Convert the boolean image into a binary (0,1)
-    edges2_binary = np.zeros_like(value)
-    #edges2_binary = cv.morphologyEx(edges2_binary, cv.MORPH_CLOSE, cv.getStructuringElement(cv.MORPH_RECT,(1,250)))
-    edges2_binary[edges2>0] = 1
+    edges_binary = np.zeros_like(value)
+    edges_binary[edges>0] = 1
     
     #Compute contours
-    contours = contours_by_img([edges2_binary])[0]
+    contours = contours_by_img([edges_binary])[0]
     #Find which contours to keep
     keep=[]
     for contour in contours:
@@ -635,37 +641,37 @@ def find_cards(crop, sig, CARD_DIM):
     boundRect = [None]*len(keep)
     for i, c in enumerate(keep):
         contours_poly[i] = cv.approxPolyDP(c, 3, True)#Approximate form
-        boundRect[i] = cv.boundingRect(contours_poly[i])#contains index of corners the rectange
-    boundRect.sort()#sort by top left angle
+        boundRect[i] = cv.boundingRect(contours_poly[i])#contains index of top left corner of the rectange,a s well as width and height
+    boundRect.sort()#sort by top left angle position from left to right
     
     #Empty list for results
     cards = []
     for i in range(len(keep)):
-        if(380<boundRect[i][2]<480 and 350<boundRect[i][3]<800):#Check that the bounding rectangle is approximately as large and at least half as high as a card
+        if(380<boundRect[i][2]<480 and 350<boundRect[i][3]<800):#Check that the bounding rectangle is approximately as large and high as a card
             #Crop the cards from the original bottom third of image)
             card = crop[int(boundRect[i][1]):int(boundRect[i][1]+boundRect[i][3]),int(boundRect[i][0]):int(boundRect[i][0]+boundRect[i][2])]
             cards.append(card)
     return cards
 
 def find_5_cards(image, common_markers, card_dim):
-    crop = image[-image.shape[0]//3:-20,10:-10]#get bottom third of image
+    """General method to call to isolate the 5 cards areas from the cropped image of table"""
+    #Isolate bottom third of image
+    crop = image[-image.shape[0]//3:-20,10:-10]
+    #Create list for results
     final_cards = []
-    best_idx = (0,0)
-    best_len = 0
     for sig in range (2,5):
         cards = find_cards(crop,sig, card_dim)
         #If we find 5 cards, return results
         if len(cards)==5 :
             return cards
     
-    #If we don't have 5 cards, try loris' method
-    if(best_len!=5):
-        new_img = isolate_common_cards(crop)
-        for sig in range (2,5):
-            cards = find_cards(new_img, sig, card_dim)
-            #If we find 5 cards, record sig and exit
-            if len(cards)==5 :
-                return cards
+    #If we don't have 5 cards, try second method
+    new_img = isolate_common_cards(crop)
+    for sig in range (2,5):
+        cards = find_cards(new_img, sig, card_dim)
+        #If we find 5 cards, return results
+        if len(cards)==5 :
+            return cards
     #If both methods don't return good results, return basic separation (/5)
     return find_common_search_area_v1(image, common_markers, card_dim)
 
@@ -694,25 +700,35 @@ def find_common_search_area_v1(image, markers, CARD_DIM):
     return cards
 
 def isolate_common_cards(img):
+    """Second method for common cards segmentation, first isolate the cards by creating a mask,
+       then perform the first method on resulting image.
+       It allows for better segmentation when problem comes from unclear boundary with table
+    """
     x = np.copy(img)
     cond = x[:,:,1] < 222
     x[cond] = 0
+    #Apply morphological operations on gray image
     x = skimage.color.rgb2gray(x)
     k = cv.getStructuringElement(cv.MORPH_CROSS,(3,3))
     x = skimage.morphology.binary_opening(x, k)#, footprint=None, out=None)
     k = cv.getStructuringElement(cv.MORPH_CROSS,(6,6))
     x = skimage.morphology.binary_closing(x, k)#, footprint=None, out=None)
+    #Initialize results to 0
     im = np.zeros((x.shape[0], x.shape[1]))
     
+    #Compute contours
     [cts] = contours_by_img([x])
+    #Sort them by length
     lengths = [len(ct) for ct in cts]
     idx = np.argsort(lengths)
+    #Keep 5 biggest contours
     cts_of_cards = ([cts[i] for i in idx])[-5:]
+    #Put contours as white (=binary image)
     for ct in cts_of_cards:
         im[ct[:,1], ct[:,0]] = 255
+    #Fill contours to create masks of cards areas
     im = nd.binary_fill_holes(im)
-    #plt.imshow(im, cmap = 'gray')
-    #plt.show()
+    #Return the binary mask times the original image
     return img*im[...,np.newaxis]
 
 
