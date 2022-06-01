@@ -4,9 +4,7 @@ from typing import Union
 from glob import glob
 import pandas as pd
 import os
-#from treys import Card
 from termcolor import colored
-#from utils import eval_listof_games , debug_listof_games, save_results , load_results
 
 import skimage.io
 import matplotlib.pyplot as plt
@@ -23,15 +21,13 @@ import plotly.express as px
 import scipy.ndimage as nd
 from skimage.filters import threshold_multiotsu
 
-card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
-ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
-    
 
 """"""""""""""""""""""""
 """   Loading stuff  """
 """"""""""""""""""""""""
 
 def load_data(paths_list):
+    """ Simply loads list of images using a path list """
     images = []
     for path in paths_list:
         img = skimage.io.imread(path)
@@ -40,35 +36,39 @@ def load_data(paths_list):
 
 
 def isolate_card_features(cards, kings):
-    """ Get all symbols, letters, numbers and original cards """
-    # isolate cards
+    """
+    Get all symbols, letters, numbers and original cards as images.
+    Used tu create features.
+    """
+    # isolate cards (delimiation by trial and error)
     idx = [520,1190,1190,1190,1190,1840,1840,1840,1890,2530,2530,2550,2550]
     row = 640
     idy = [2750,1940,2460,2980,3480,1915,2450,2950,3500,1930,2470,2975,3500]
     col = 470
+    
     individual_cards = []
-
     for x,y in zip(idx, idy):
         card = cards[x:x+row, y:y+col]
         individual_cards.append(card)
+    
     # isolate numbers/letters
     idx = np.array([50,50,50,45,50,35,50,50,40,40,45,45,49]) - 3
     row = 70 + 7
     idy = [40,40,35,35,40,50,40,35,40,50,40,40,46]
     col = 50
+    
     numbers = []
-
     for x,y,card in zip(idx, idy, individual_cards):
         number = card[x:x+row, y:y+col]
         numbers.append(number)
     # isolate symbols
     idx = [1620,1610,2280,2270]
     row = 60
-    #idy = [2575,3088,2592,3140]
     idy = [2520,3033,2538,3090]
     col = 45
+    
+    # isolate numbers/letters
     symbols = []
-
     for x,y in zip(idx, idy):
         symbol = kings[x:x+row, y:y+col]
         symbols.append(symbol)
@@ -80,7 +80,10 @@ def isolate_card_features(cards, kings):
 """"""""""""""""""""""""""""""
 
 def cropping_routine(image):
-    """ General function, calls the others """
+    """
+    Crops the table out of the original image and returns it.
+    This general function calls the others in this block.
+    """
     x = hist_eq(image)
     x = binarization(x)
     x, cropped_img = crop_table_from_binary(image, x)
@@ -88,6 +91,7 @@ def cropping_routine(image):
 
 
 def binarization(image):
+    """ Binarize image using otsu thresholding on its grayscale transformation """
     x = skimage.color.rgb2gray(image)
     # smooth for generalization a#nd cleaning
     x = filters.gaussian(x, sigma = 3)
@@ -97,6 +101,7 @@ def binarization(image):
     return x
 
 def hist_eq(image):
+    """ Equalizes histograms by channel """
     channel_1 = skimage.exposure.equalize_hist(image[:,:,0])
     channel_1 = filters.gaussian(channel_1, sigma = 3)
     channel_2 = skimage.exposure.equalize_hist(image[:,:,1])
@@ -107,6 +112,7 @@ def hist_eq(image):
     return output
 
 def crop_table_from_binary(image, bin_img):
+    """ Creates mask from binary image and uses it to isolate table in original image """
     # basic cleaning of outside white aberrations
     row_med = np.median(bin_img, axis = 0)
     bin_img[:,row_med==0] = 0
@@ -139,14 +145,16 @@ def crop_table_from_binary(image, bin_img):
 
 
 """"""""""""""""""""""""""""""
-"""  Cropping areas stuff  """
+"""  Cropping player areas stuff  """
 """"""""""""""""""""""""""""""
 
 def find_markers_idx(image, MARKERS):
+    """ Redefines markers (scotch) positions on table using a normalized position """
     table_dim = image.shape[:2]
     return (MARKERS * table_dim).astype(int)
 
 def find_player_search_area(image, marker):
+    """ Crops a searching region around the player scotch marker (~ 1/3 of table size) """
     # adapt search area to table size
     row, col = image.shape[:2]
     R, C = int(row/6), int(col/6)
@@ -157,45 +165,13 @@ def find_player_search_area(image, marker):
     search_area = image[x1:x2, y1:y2]
     return search_area
  
-def check_if_back(edges, LOWER_BOUND, UPPER_BOUND):
-    ct_number = []
-    for img in edges:
-        k = cv.getStructuringElement(cv.MORPH_CROSS,(5,5))
-        x = skimage.morphology.dilation(img, k)
-        [contours] = contours_by_img([x])
-        [filtered_contours] = filter_contours_by_size([contours], LOWER_BOUND, UPPER_BOUND)
-        ct_number.append(len(filtered_contours))
-    is_back_of_card = np.asarray(ct_number) < 4
-    return is_back_of_card
-
-def find_common_search_area_v1(image, markers, CARD_DIM):
-    """ Works but a bit edgy, would be better to rely on something else """
-    # isolate a 1rst big search area in bottom 3rd of the image
-    row, col = image.shape[:2]
-    C = int((CARD_DIM[1]*col))
-    start, end = markers[0,1]-C, markers[-1,1]+C
-    big_area = image[int(2/3*row):row, start:end]
-    
-    # refine using edge detector and contours filtering
-    edges = edge_detector([big_area])[0]
-    contours = contours_by_img([edges])[0]
-    contours = filter_contours_by_size([contours], 100, 3000)[0]
-    start = np.min([np.min(contour[0,:]) for contour in contours])
-    end = np.max([np.max(contour[0,:]) for contour in contours])
-
-    # rescale image and divide in 5
-    big_area = big_area[:,start:end]
-    w = int(big_area.shape[1]/5)
-    cards = [big_area[ : , w*i : w*(1+i) ] for i in range(5)]
-    return cards
-
 """"""""""""""""""""""""""""""
 """  Contours computation  """
 """"""""""""""""""""""""""""""
 
 def one_contour_by_img(img_list):
     """
-    Extracts the biggest contour for each image
+    Extracts the biggest contour for each image. Used for tuning the pipeline.
     return: list(contour_img_1, contour_img_2, ...)
     """
     cont_img = []
@@ -225,8 +201,11 @@ def one_contour_by_img(img_list):
 
 def contours_by_img(img_list, mode = cv.RETR_EXTERNAL):
     """ 
-    Extracts all contours for each image
-    return: list(  list(contour_1_img_1, ..., contour_m_img_1)  ,  ...,  list(contour_1_img_n, ..., contour_m_img_n)  )
+    Extracts all contours for each image in list.
+    Default mode takes external contours to avoid including the smal details in J/Q/K/A cards.
+    return: list(  list(contour_1_img_1, ..., contour_m_img_1)  ,
+                    ..., 
+                    list(contour_1_img_n, ..., contour_m_img_n)  )
     """
     cont_img = []
     
@@ -236,6 +215,7 @@ def contours_by_img(img_list, mode = cv.RETR_EXTERNAL):
         contours, hierarchy = cv.findContours(img.astype(np.uint8) , mode, cv.CHAIN_APPROX_NONE)
         
         # Case 1: 1 contour detected in image
+        # (cases made because of shape compatibilities)
         if len(contours) == 1:
             contour = contours[0][:,0]
             contour = [contour]
@@ -252,9 +232,10 @@ def contours_by_img(img_list, mode = cv.RETR_EXTERNAL):
     return cont_img
 
   
-def filter_contours_by_size(sobel_all_contours, lower_bound, upper_bound):
+def filter_contours_by_size(all_contours, lower_bound, upper_bound):
+    """ Exclude contours outside of an expected length range """
     all_filtered_contours = []
-    for contours in sobel_all_contours:
+    for contours in all_contours:
         image_conts = []
         for contour in contours:
             size = len(contour)
@@ -265,6 +246,7 @@ def filter_contours_by_size(sobel_all_contours, lower_bound, upper_bound):
 
 
 def complex_contours(contour_list):
+    """ Makes complex contours out of 2D coordinates """
     contours = []
     for contour in contour_list:
         complex_contour = contour[:,0] + 1j * contour[:,1]
@@ -273,6 +255,10 @@ def complex_contours(contour_list):
 
 
 def check_contours(contours, edges):
+    """
+    Checks that each area returns more than 1 contours, or retry with mode cv.RETR_LIST.
+    Problem would appear if the whole card contour was detected in common areas (and nothing inside)
+    """
     final_contours = []
     for contour, edge in zip(contours, edges):
         if len(contour) == 1:
@@ -288,7 +274,34 @@ def check_contours(contours, edges):
 """    Features creation   """
 """"""""""""""""""""""""""""""
 
+def get_descriptors(contours, N, is_back_of_card = None):
+    """
+    Creates Fourier descriptors from 2D contour coordinates, for each contour of each image.
+    Descriptor vector of 0 indicates a "back of card" image.
+    """
+    # make complex contours
+    comp_ct = [complex_contours(card_cont) for card_cont in contours]
+    raw_descr = [n_FT_descr(ct, N) for ct in comp_ct]
+    
+    # in case we do not avec to check back of card condition, makes it always True
+    if is_back_of_card is None: is_back_of_card = np.zeros(len(raw_descr)).astype(bool)
+    
+    # create array of descriptors for each image: row = contour, col = 9 descriptors
+    selected_descr = []
+    for d, is_back in zip(raw_descr, is_back_of_card):
+        if not is_back and not d.size == 0:
+            descr_1, descr_2, descr_3 = d[:,1], d[:,2], d[:,3]
+            descr_4, descr_5, descr_6 = d[:,4], d[:,5], d[:,6]
+            descr_7, descr_8, descr_9 = d[:,7], d[:,8], d[:,9]
+            descr = np.vstack([descr_1,descr_2,descr_3,
+                                descr_4,descr_5,descr_6,
+                                descr_7,descr_8,descr_9]).T
+        else: descr = np.zeros(9)
+        selected_descr.append(descr)
+    return selected_descr
+
 def n_FT_descr(complex_contours, n):
+    """ Creates Fourier descr from complex contours """
     imgs_fft = []
     for complex_contour in complex_contours:
         fft = np.fft.fft(complex_contour)[:n]
@@ -299,17 +312,17 @@ def n_FT_descr(complex_contours, n):
 
 
 def edge_detector(color_images):
+    """ Gives otsu-thresholded edges in images. Used before contour detection. """
     final_images = []
     for image in color_images:
+        # control if image is already grayscale
         if len(image.shape) == 3: x = skimage.color.rgb2gray(image)
         else: x = image
-        # smooth for generalization and cleaning
+        # smooth a bit for generalization and cleaning
         x = filters.gaussian(x, sigma = 1)
         # edge detector
         x = filters.sobel(x)
-        #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
-        #edges =cv.morphologyEx(smoothed,cv.MORPH_GRADIENT,kernel)
-        
+        # otsu thresholding
         otsu = filters.threshold_otsu(x)
         output = x > otsu
         final_images.append(output)
@@ -319,24 +332,34 @@ def edge_detector(color_images):
 """      Predictions       """
 """"""""""""""""""""""""""""""
 
-def predict_cards_from_predictors(descr, contours, GT_descr, number_keys, symbol_keys, K=1):
+def common_pred(descr, contours, GT_descr, number_keys, symbol_keys, K=1):
+    """ Prediction function used on each common area. See next function for details of arguments. """
     pair, location, cont = identify_K_pairs(descr, contours, GT_descr, number_keys, symbol_keys, K)
+    # in case a 6 or 9 is predicted, control which of those it is
     card_ID = six_or_nine_check(pair, cont, location)
     
-    # check that it returns something (avoid breaking everything)
+    # check that it returns something (avoid breaking everything for edge cases)
     if len(card_ID) == 0: card_ID = ['0']
     
     return card_ID
 
 
 def identify_K_pairs(descr, contours, GT_descr, number_keys, symbol_keys, K):
-    """ Create K (here 1 or 2) pairs of number/symbol with their associated contours and location """
+    """
+    Create K (here 1 or 3) pairs of number/symbol with their associated contours and location.
+    :param descr: <2D numpy array> card descriptors, rows = contours, col = 9 descriptors
+    :param contours: <list of 2D numpy array> card contours
+    :param GT_descr: <2D numpy array> ground truth descriptor used to classify card descriptors
+    :param number_keys: <1D numpy array> number/letter name to attribute during classification
+    :param symbol_keys: <1D numpy array> symbol name to attribute during classification
+    :param K: number of most likely pairs to return. 3 are useful in player areas
+    """
     # separate number and symbols descr
     NB_descr = GT_descr[:-4]
     SYM_descr = GT_descr[-4:]
     
     """ Attribute 1 number to each contour """
-    # for each contour, compute distance of every number descr to it
+    # for each contour, compute distance of every number descr to it and keep smallest
     ct_to_nb_dist = []
     nb_cont = []
     nb_keys = []
@@ -351,7 +374,7 @@ def identify_K_pairs(descr, contours, GT_descr, number_keys, symbol_keys, K):
         nb_keys.append(number_keys[idx])
 
     """ Attribute 1 symbol to each contour """
-    # for each contour, compute distance of every symbol descr to it
+    # for each contour, compute distance of every symbol descr to it and keep smallest
     ct_to_sym_dist = []
     sym_cont = []
     sym_keys = []
@@ -365,16 +388,16 @@ def identify_K_pairs(descr, contours, GT_descr, number_keys, symbol_keys, K):
         sym_cont.append(ct)
         sym_keys.append(symbol_keys[idx])
 
-    """ Define true K symbol(s), EASIER TO ISOLATE than numbers (need 3) """
-    # compute center of contours to approximate location
+    """ Define true K symbol(s) (symbols easier to isolate than numbers) """
+    # compute center of mass of contours to approximate location
     ct_locs = np.array([np.mean(contour, axis = 0) for contour in contours])
-
+    # keep K symbols and associated contour and location
     sorted_idx = np.argsort(ct_to_sym_dist)
     sym_cont = ([sym_cont[i] for i in sorted_idx])[:K]
     sym_keys = ([sym_keys[i] for i in sorted_idx])[:K]
     sym_locs = ([ct_locs[i] for i in sorted_idx])[:K]
 
-    """ take min distance number-symbol pairs to find the K associated number of interest """
+    """ associated number found for closest contour to symbol, to find the K pairs """
     candidate_pairs = []
     candidate_locations = []
     candidate_nb_cont = []
@@ -403,6 +426,7 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys, 
     # check back of cards case
     cards = ['0','0']
     if not (descr == np.zeros(9)).all():
+        # get 3 pairs of letter/symbol
         candidate_pairs, candidate_locations, candidate_nb_cont = identify_K_pairs(descr, contours,
                                                                                    GT_descr, number_keys,
                                                                                    symbol_keys, K)
@@ -417,10 +441,10 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys, 
             locations = np.array([candidate_locations[0], candidate_locations[2]])
             nb_contours = [candidate_nb_cont[0], candidate_nb_cont[2]]
 
-        """ check if number is a 6 or 9 if case occurs """
+        # check if number is a 6 or 9 if case occurs
         cards_ID = six_or_nine_check(cards_ID, nb_contours, locations)
 
-        """ identify which card is where """ #using locations and player ID
+        """ identify which card is where using player ID and location""" 
         if player_id in [1,4]:
             up_idx = np.argmin(locations[:,1])
             down_idx = np.argmax(locations[:,1])
@@ -440,22 +464,42 @@ def player_pred(descr, contours, GT_descr, player_id, number_keys, symbol_keys, 
         if len(card) == 0: card = ['0']
         
     return cards
-    
+
+
+def check_if_back(edges, LOWER_BOUND, UPPER_BOUND):
+    """ Check if the player area contains back of cards """
+    ct_number = []
+    for img in edges:
+        # dilate edges
+        k = cv.getStructuringElement(cv.MORPH_CROSS,(5,5))
+        x = skimage.morphology.dilation(img, k)
+        # filter contours using expected range
+        [contours] = contours_by_img([x])
+        [filtered_contours] = filter_contours_by_size([contours], LOWER_BOUND, UPPER_BOUND)
+        ct_number.append(len(filtered_contours))
+    # create boolean indicator for each area
+    is_back_of_card = np.asarray(ct_number) < 6
+    return is_back_of_card
+
+
 def six_or_nine_check(cards_ID, nb_contours, locations):
-    """ Choose 6 or 9 by looking at distance between (rot) number and mean sym/nb location """
+    """
+    Choose 6 or 9 by looking at distance between (rot) number and mean sym/nb location.
+    When rotating them around their center of mass, the 9 goes down and the 6 goes up.
+    """
     output_ID = []
     for ID, ct, loc in zip(cards_ID, nb_contours, locations):
         final_ID = ID
         if ID[0] == '6' or ID[0] == '9':
             # rotation of 180° around centr of mass (remains identical)
             rot_ct = rotate_contour(ct)
-            # compute center of contour and rot contour (changes)
+            # compute center of contours (changes)
             Cx = (np.max(ct[:,0]) + np.min(ct[:,0])) // 2
             Cy = (np.max(ct[:,1]) + np.min(ct[:,1])) // 2
             rot_Cx = (np.max(rot_ct[:,0]) + np.min(rot_ct[:,0])) // 2
             rot_Cy = (np.max(rot_ct[:,1]) + np.min(rot_ct[:,1])) // 2
             
-            # compute distance
+            # compute distance to mean letter/symbol location
             dist = np.linalg.norm([Cx, Cy] - loc)
             rot_dist = np.linalg.norm([rot_Cx, rot_Cy] - loc)
             if dist > rot_dist: final_ID = '9' + ID[1]
@@ -464,103 +508,13 @@ def six_or_nine_check(cards_ID, nb_contours, locations):
     return output_ID
             
 def rotate_contour(contour, angle = np.pi):
+    """ Rotates contour around its center of mass of a default angle PI """
     Ox, Oy = np.mean(contour, axis = 0)
     rot_x = np.asarray([Ox + np.cos(angle) * (x - Ox) - np.sin(angle) * (y - Oy) for (x,y) in contour], dtype =object)
     rot_y = np.asarray([Oy + np.sin(angle) * (x - Ox) + np.cos(angle) * (y - Oy) for (x,y) in contour], dtype =object)
     rot_contour = np.vstack([rot_x, rot_y]).T
     return rot_contour
     
-    
-""""""""""""""""""""""""""""""
-"""     Plotting stuff     """
-""""""""""""""""""""""""""""""
-
-def plot_coutours_length_distrib(cards_contours_len, ground_truth_contours_len):
-    # plot ground truth distrib
-    fig, ax = plt.subplots(figsize=(10,10))
-    ax.hist(ground_truth_contours_len, bins=len(ground_truth_contours_len))
-    plt.text(400,3.5, f'min = {np.min(ground_truth_contours_len)} \nmax = {np.max(ground_truth_contours_len)}')
-    for i, (x, card) in enumerate(zip(ground_truth_contours_len, ground_truth_titles)):
-        plt.text(x, (i+1)*0.1, card)
-    plt.title('Distribution of ground truth contour lengths')
-    plt.show()
-
-
-    # plot cards distrib
-    fig, axes = plt.subplots(ncols = 3, nrows = 5, figsize=(20,20))
-    for ax, contours, title in zip(axes.flatten(), cards_contours_len, card_titles):
-        lengths = [len(ct) for ct in contours]
-        ax.hist(lengths, bins=len(lengths))
-        ax.set_title(title)
-    axes[-1,-1].axis('off')
-    axes[-1,-2].axis('off')
-    fig.suptitle('Distribution of contour length on cards')
-    plt.show()
-
-    
-def plot_fourier_descr_and_card_contours(GT_descr, cards_descr = None, card_idx = None):
-    fig, axes = plt.subplots(ncols = 2, figsize=(12,5))
-
-    # CHOOSE WHICH CARD CONTOUR TO PLOT ON FOURIER SPACE
-    if card_idx is not None and cards_descr is not None:
-        j = card_idx
-        axes[0].scatter(cards_descr[j][:,0], cards_descr[j][:,1],
-                        color = 'k', label = card_titles[j], alpha = 0.3)
-        axes[1].scatter(cards_descr[j][:,0], cards_descr[j][:,1],
-                        color = 'k', label = card_titles[j], alpha = 0.3)
-
-    # PLOT GROUND TRUTH FOURIER COEFS
-    for descr, label in zip(GT_descr[:-4], ground_truth_titles[:-4]):
-        axes[0].scatter(descr[0], descr[1], label = label)
-
-    axes[0].legend(bbox_to_anchor=(1,1))
-    axes[0].set_xlabel('1st descriptor')
-    axes[0].set_ylabel('2nd descriptor')
-    axes[0].set_title('Numbers/Letters Fourier descriptors')
-
-    for descr, label in zip(GT_descr[-4:], ground_truth_titles[-4:]):
-        axes[1].scatter(descr[0], descr[1], label = label)
-    axes[1].legend(bbox_to_anchor=(1,1))
-    axes[1].set_xlabel('1st descriptor')
-    #axes[1].set_ylabel('2nd descriptor')
-    axes[1].set_title('Symbols Fourier descriptors')
-    plt.show()
-    
-def plot_fourier_descr_3D(GT_descr): 
-    ax = plt.axes(projection='3d')
-    for descr, label in zip(GT_descr[:-4], ground_truth_titles[:-4]):
-        ax.scatter3D(descr[0], descr[1], descr[2], label = label)
-    ax.set_title('Letters/Numbers 3D Fourier space')
-    ax.set_xlabel('1st descriptor')
-    ax.set_ylabel('2nd descriptor')
-    ax.set_zlabel('3rd descriptor')
-    ax.legend(bbox_to_anchor=(2,1))
-    plt.show()
-
-    ax = plt.axes(projection='3d')
-    for descr, label in zip(GT_descr[-4:], ground_truth_titles[-4:]):
-        ax.scatter3D(descr[0], descr[1], descr[2], label = label)
-    ax.set_title('Symbols 3D Fourier space')
-    ax.set_xlabel('1st descriptor')
-    ax.set_ylabel('2nd descriptor')
-    ax.set_zlabel('3rd descriptor')
-    ax.legend(bbox_to_anchor=(2,1))
-    plt.show()
-    
-def plot_interactive_3D_descr(df):
-    fig = px.scatter_3d(df[:-4], x='descr 1', y='descr 2', z='descr 3')
-    #fig.write_html('first_figure.html', auto_open=False)
-    fig.show()
-    fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
-    #fig.write_html('first_figure.html', auto_open=False)
-    fig.show()
-
-# def plot_card(idx, idy, r, c):
-#     fig, axes = plt.subplots(ncols=4, figsize=(10,8))
-#     for ax,x,y in zip(axes.flatten(),idx, idy):
-#         ax.imshow(cards[x:x+r,y:y+c])
-#         ax.axis('off')
-#     plt.show()
 
 """"""""""""""""""""""""""""""
 """     Chips stuff     """
@@ -652,9 +606,9 @@ def predict_chips_area(chips_area): ## predict the pixels in a chips
     
     return round_(x,T=0.2),tot
 
-""""""""""""""""""""""""""""""
-""" Common cards detection """
-""""""""""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""
+"""  Common cards fine detection """
+""""""""""""""""""""""""""""""""""""
 
 def find_cards(crop, sig, CARD_DIM):
     #crop = cropping_routine(image)[1]#get table area
@@ -715,6 +669,30 @@ def find_5_cards(image, common_markers, card_dim):
     #If both methods don't return good results, return basic separation (/5)
     return find_common_search_area_v1(image, common_markers, card_dim)
 
+def find_common_search_area_v1(image, markers, CARD_DIM):
+    """ Find common cards by cutting in 5 the space within the first
+        edge contours of the bottom 3rd of the table.
+        Not very accurate, used in case the more accurate common card detector fails
+    """
+    # isolate a 1rst big search area in bottom 3rd of the image
+    row, col = image.shape[:2]
+    C = int((CARD_DIM[1]*col))
+    start, end = markers[0,1]-C, markers[-1,1]+C
+    big_area = image[int(2/3*row):row, start:end]
+    
+    # refine using edge detector and contours filtering
+    edges = edge_detector([big_area])[0]
+    contours = contours_by_img([edges])[0]
+    contours = filter_contours_by_size([contours], 100, 3000)[0]
+    start = np.min([np.min(contour[0,:]) for contour in contours])
+    end = np.max([np.max(contour[0,:]) for contour in contours])
+
+    # rescale image and divide in 5
+    big_area = big_area[:,start:end]
+    w = int(big_area.shape[1]/5)
+    cards = [big_area[ : , w*i : w*(1+i) ] for i in range(5)]
+    return cards
+
 def isolate_common_cards(img):
     x = np.copy(img)
     cond = x[:,:,1] < 222
@@ -737,30 +715,95 @@ def isolate_common_cards(img):
     #plt.show()
     return img*im[...,np.newaxis]
 
-def get_predictors(cards, lower, upper):
-    #bin_cards=[]
-    #for card in cards:
-    #    bin_cards.append(binarization(card))
-    sobel_test_images = edge_detector(cards)
-    #test_contours = one_contour_by_img(sobel_test_images)
-    test_all_contours = contours_by_img(sobel_test_images)
-    test_filtered_contours = filter_contours_by_size(test_all_contours, lower, upper)
-    cards_comp_ct = [complex_contours(card_cont) for card_cont in test_filtered_contours]
-    test_descr = [n_FT_descr(comp_ct, 10) for comp_ct in cards_comp_ct]
-    test_3D_descr = []
-    for card_descr in test_descr:
-        if not card_descr.size==0:
-            descr_1 = card_descr[:,1]
-            descr_2 = card_descr[:,2]
-            descr_3 = card_descr[:,3]
-            descr_4 = card_descr[:,4]
-            descr_5 = card_descr[:,5]
-            descr_6 = card_descr[:,6]
-            descr_7 = card_descr[:,7]
-            descr_8 = card_descr[:,8]
-            descr_9 = card_descr[:,9]
-            card_contours_descr = np.vstack([descr_1,descr_2,descr_3,
-                                             descr_4,descr_5,descr_6,
-                                            descr_7,descr_8,descr_9]).T
-            test_3D_descr.append(card_contours_descr)
-    return test_3D_descr
+
+
+
+""""""""""""""""""""""""""""""
+"""     Plotting stuff     """
+""""""""""""""""""""""""""""""
+
+""" Used at some point for 2D and 3D illustration """
+
+card_titles = ['Kcard', 'Qcard', 'Jcard', '10card', '9card', '8card', '7card', '6card', '5card', '4card', '3card', '2card', 'Acard']
+ground_truth_titles = ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A', 'trèfle', 'pique', 'carreau', 'coeur']
+    
+
+def plot_coutours_length_distrib(cards_contours_len, ground_truth_contours_len):
+    # plot ground truth distrib
+    fig, ax = plt.subplots(figsize=(10,10))
+    ax.hist(ground_truth_contours_len, bins=len(ground_truth_contours_len))
+    plt.text(400,3.5, f'min = {np.min(ground_truth_contours_len)} \nmax = {np.max(ground_truth_contours_len)}')
+    for i, (x, card) in enumerate(zip(ground_truth_contours_len, ground_truth_titles)):
+        plt.text(x, (i+1)*0.1, card)
+    plt.title('Distribution of ground truth contour lengths')
+    plt.show()
+
+
+    # plot cards distrib
+    fig, axes = plt.subplots(ncols = 3, nrows = 5, figsize=(20,20))
+    for ax, contours, title in zip(axes.flatten(), cards_contours_len, card_titles):
+        lengths = [len(ct) for ct in contours]
+        ax.hist(lengths, bins=len(lengths))
+        ax.set_title(title)
+    axes[-1,-1].axis('off')
+    axes[-1,-2].axis('off')
+    fig.suptitle('Distribution of contour length on cards')
+    plt.show()
+
+    
+def plot_fourier_descr_and_card_contours(GT_descr, cards_descr = None, card_idx = None):
+    fig, axes = plt.subplots(ncols = 2, figsize=(12,5))
+
+    # CHOOSE WHICH CARD CONTOUR TO PLOT ON FOURIER SPACE
+    if card_idx is not None and cards_descr is not None:
+        j = card_idx
+        axes[0].scatter(cards_descr[j][:,0], cards_descr[j][:,1],
+                        color = 'k', label = card_titles[j], alpha = 0.3)
+        axes[1].scatter(cards_descr[j][:,0], cards_descr[j][:,1],
+                        color = 'k', label = card_titles[j], alpha = 0.3)
+
+    # PLOT GROUND TRUTH FOURIER COEFS
+    for descr, label in zip(GT_descr[:-4], ground_truth_titles[:-4]):
+        axes[0].scatter(descr[0], descr[1], label = label)
+
+    axes[0].legend(bbox_to_anchor=(1,1))
+    axes[0].set_xlabel('1st descriptor')
+    axes[0].set_ylabel('2nd descriptor')
+    axes[0].set_title('Numbers/Letters Fourier descriptors')
+
+    for descr, label in zip(GT_descr[-4:], ground_truth_titles[-4:]):
+        axes[1].scatter(descr[0], descr[1], label = label)
+    axes[1].legend(bbox_to_anchor=(1,1))
+    axes[1].set_xlabel('1st descriptor')
+    #axes[1].set_ylabel('2nd descriptor')
+    axes[1].set_title('Symbols Fourier descriptors')
+    plt.show()
+    
+def plot_fourier_descr_3D(GT_descr): 
+    ax = plt.axes(projection='3d')
+    for descr, label in zip(GT_descr[:-4], ground_truth_titles[:-4]):
+        ax.scatter3D(descr[0], descr[1], descr[2], label = label)
+    ax.set_title('Letters/Numbers 3D Fourier space')
+    ax.set_xlabel('1st descriptor')
+    ax.set_ylabel('2nd descriptor')
+    ax.set_zlabel('3rd descriptor')
+    ax.legend(bbox_to_anchor=(2,1))
+    plt.show()
+
+    ax = plt.axes(projection='3d')
+    for descr, label in zip(GT_descr[-4:], ground_truth_titles[-4:]):
+        ax.scatter3D(descr[0], descr[1], descr[2], label = label)
+    ax.set_title('Symbols 3D Fourier space')
+    ax.set_xlabel('1st descriptor')
+    ax.set_ylabel('2nd descriptor')
+    ax.set_zlabel('3rd descriptor')
+    ax.legend(bbox_to_anchor=(2,1))
+    plt.show()
+    
+def plot_interactive_3D_descr(df):
+    fig = px.scatter_3d(df[:-4], x='descr 1', y='descr 2', z='descr 3')
+    #fig.write_html('first_figure.html', auto_open=False)
+    fig.show()
+    fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
+    #fig.write_html('first_figure.html', auto_open=False)
+    fig.show()
