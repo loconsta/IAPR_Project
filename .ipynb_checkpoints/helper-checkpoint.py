@@ -1,25 +1,19 @@
-import PIL.Image
 import numpy as np
-from typing import Union
-from glob import glob
 import pandas as pd
-import os
-from termcolor import colored
+import matplotlib.pyplot as plt
+#import plotly.express as px
 
 import skimage.io
-import matplotlib.pyplot as plt
-from skimage.segmentation import flood, flood_fill
 from skimage import morphology
 from skimage import feature
-from skimage.morphology import closing, opening, disk, square
-import numpy as np
-
+from skimage.morphology import closing, opening
 from skimage import filters
-import scipy
-import cv2 as cv
-import plotly.express as px
-import scipy.ndimage as nd
 from skimage.filters import threshold_multiotsu
+
+import scipy
+import scipy.ndimage as nd
+
+import cv2 as cv
 
 
 """"""""""""""""""""""""
@@ -524,78 +518,98 @@ luce = 221.26
 noluce = 86.66
 
 def find_chips_search_area(image):
-    # adapt search area to table size
+    """ From table image define the chips search area"""
+    # Adapt search area to table size
     row, col = image.shape[:2]
     R, C = int(row/4), int(col/4)
     R_2 = 3*R
     C_2 = 3*C
-    # return a crop on the image
+    # Return a crop on the table image removing the external 1/4
     search_area = image[R:R_2, C:C_2]
     return search_area
 
 
-def round_(x,T): ## round function with threshold
-    
+def round_(x,T): 
+    """ Round function if an adaptive thresholding"""
+    # Compute the floor value of x
     n = np.floor(x)
+    
+    # Return the integer value n + 1 if we have reached the threshold T
     if (x-n > T): n += 1
     
     return int(n)
     
-def n_chips(N,chips_area): ## number of chips
+def n_chips(N,chips_area): 
+    """ Based on the number of pixels, it returns the number of chips"""
     x = chips_area.shape[0]
     y = chips_area.shape[1]
     
     
+    # Ration dependent on the CHIPS_AREA constant calculated on setting image
     x = N/(x*y)/CHIPS_AREA
     
+    # Return the value given by the self made round function with T=0.3
     return round_(x,T=0.3)
 
-def give_color(chips_area,final_mask): ## give color to each pixel
-    
+def give_color(chips_area,final_mask):
+    """ Give a color to all the pixels in the mask"""
+    # Convert the image in HSV
     chips_area_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
+    
+    # Create a zeros 2D image og the same shape of the input
     result = np.zeros(chips_area_hsv[:,:,0].shape)
     
-    
+    # Convert to float to avoid mistakes
     chips_area_hsv = np.float64(chips_area_hsv)
     
+    # Calculate the mean table value on the third channel from an angle
     x = np.mean(chips_area[0:10,0:10,2])
+    
+    # Determine the black threshold
     black = int(72/(luce-noluce) * (x-noluce) + 38)
 
+    # Assigne the black color
     result[chips_area_hsv[:,:,2] < black] = 1 #black
     chips_area_hsv[result!=0,:] = float("NAN")
-    
+    #Assigne the white color
     result[chips_area_hsv[:,:,1] < 60] = 2 #white
     chips_area_hsv[result!=0,:] = float("NAN")
-    
+    #Assign the red color
     result[(chips_area_hsv[:,:,0] < 10) + (chips_area_hsv[:,:,0] >160)] = 3 #red
     chips_area_hsv[result!=0,:] = float("NAN")
-    
+    #Assign the blue color
     result[(chips_area_hsv[:,:,0] > 95) * (chips_area_hsv[:,:,0] < 130)] = 4 #blue
     chips_area_hsv[result!=0,:] = float("NAN")
-    
+    # Assign the green color
     result[(chips_area_hsv[:,:,0] > 35) * (chips_area_hsv[:,:,0] < 95)] = 5 #green
-    
+    #Compute the result only on the mask
     result = result*final_mask
     
     return result
 
-def predict_chips_area(chips_area): ## predict the pixels in a chips
-    
+def predict_chips_area(chips_area):
+    """ Predict the mask of chips"""
+    # Convert the image in HSV
     chips_area_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
+    #Otsu thresholding on the third channel
     thresholds = threshold_multiotsu(chips_area_hsv[:,:,2], classes = 2)
 
     # Using the threshold values, we generate the three regions.
     regions = np.digitize(chips_area_hsv[:,:,2], bins=thresholds)
-
+    
+    #Otsu thresholding on the first channel
     thresholds1 = threshold_multiotsu(chips_area_hsv[:,:,0], classes = 2)
 
     # Using the threshold values, we generate the three regions.
     regions1 = np.digitize(chips_area_hsv[:,:,0], bins=thresholds1)
 
+    # Combine the two thresholding together
     tot = (1-regions) + regions1
 
+    # Binary image
     tot[tot>0.5] = 1
     
+    # Total number of pixels in chips
     nb_px = np.sum(tot == 1)
     
     x = chips_area.shape[0]
@@ -603,6 +617,8 @@ def predict_chips_area(chips_area): ## predict the pixels in a chips
     
     
     x = nb_px/(x*y)/CHIPS_AREA
+    
+    # Return the estimated number of chips and the chips mask
     
     return round_(x,T=0.2),tot
 
@@ -816,10 +832,10 @@ def plot_fourier_descr_3D(GT_descr):
     ax.legend(bbox_to_anchor=(2,1))
     plt.show()
     
-def plot_interactive_3D_descr(df):
-    fig = px.scatter_3d(df[:-4], x='descr 1', y='descr 2', z='descr 3')
-    #fig.write_html('first_figure.html', auto_open=False)
-    fig.show()
-    fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
-    #fig.write_html('first_figure.html', auto_open=False)
-    fig.show()
+# def plot_interactive_3D_descr(df):
+#     fig = px.scatter_3d(df[:-4], x='descr 1', y='descr 2', z='descr 3')
+#     #fig.write_html('first_figure.html', auto_open=False)
+#     fig.show()
+#     fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
+#     #fig.write_html('first_figure.html', auto_open=False)
+#     fig.show()

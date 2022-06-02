@@ -1,25 +1,19 @@
-import PIL.Image
 import numpy as np
-from typing import Union
-from glob import glob
 import pandas as pd
-import os
-from termcolor import colored
+import matplotlib.pyplot as plt
+#import plotly.express as px
 
 import skimage.io
-import matplotlib.pyplot as plt
-from skimage.segmentation import flood, flood_fill
 from skimage import morphology
 from skimage import feature
-from skimage.morphology import closing, opening, disk, square
-import numpy as np
-
+from skimage.morphology import closing, opening
 from skimage import filters
-import scipy
-import cv2 as cv
-import plotly.express as px
-import scipy.ndimage as nd
 from skimage.filters import threshold_multiotsu
+
+import scipy
+import scipy.ndimage as nd
+
+import cv2 as cv
 
 
 """"""""""""""""""""""""
@@ -524,7 +518,7 @@ luce = 221.26
 noluce = 86.66
 
 def find_chips_search_area(image):
-     """ From table image define the chips search area"""
+    """ From table image define the chips search area"""
     # Adapt search area to table size
     row, col = image.shape[:2]
     R, C = int(row/4), int(col/4)
@@ -536,7 +530,7 @@ def find_chips_search_area(image):
 
 
 def round_(x,T): 
-     """ Round function if an adaptive thresholding"""
+    """ Round function if an adaptive thresholding"""
     # Compute the floor value of x
     n = np.floor(x)
     
@@ -594,7 +588,7 @@ def give_color(chips_area,final_mask):
     return result
 
 def predict_chips_area(chips_area):
-     """ Predict the mask of chips"""
+    """ Predict the mask of chips"""
     # Convert the image in HSV
     chips_area_hsv = cv.cvtColor(chips_area, cv.COLOR_RGB2HSV)
     #Otsu thresholding on the third channel
@@ -838,10 +832,10 @@ def plot_fourier_descr_3D(GT_descr):
     ax.legend(bbox_to_anchor=(2,1))
     plt.show()
     
-def plot_interactive_3D_descr(df):
-    fig = px.scatter_3d(df[:-4], x='descr 1', y='descr 2', z='descr 3')
-    #fig.write_html('first_figure.html', auto_open=False)
-    fig.show()
-    fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
-    #fig.write_html('first_figure.html', auto_open=False)
-    fig.show()
+# def plot_interactive_3D_descr(df):
+#     fig = px.scatter_3d(df[:-4], x='descr 1', y='descr 2', z='descr 3')
+#     #fig.write_html('first_figure.html', auto_open=False)
+#     fig.show()
+#     fig = px.scatter_3d(df[-4:], x='descr 1', y='descr 2', z='descr 3')
+#     #fig.write_html('first_figure.html', auto_open=False)
+#     fig.show()
